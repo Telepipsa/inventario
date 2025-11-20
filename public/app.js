@@ -21,6 +21,19 @@ function normalizeName(s) {
   } catch (e) { return s.toString().trim().toLowerCase(); }
 }
 
+// Ensure API base is normalized to an origin (protocol + host[:port])
+function getApiBaseOrigin(raw) {
+  const val = (raw || window.__API_BASE || '').toString().trim();
+  if (!val) return '';
+  try {
+    const u = new URL(val);
+    return u.origin;
+  } catch (e) {
+    // fallback: strip common API path segments and trailing slash
+    return val.replace(/\/api\/products\/?$/i, '').replace(/\/$/, '');
+  }
+}
+
 const fileButton = document.getElementById('fileButton');
 const fileInput = document.getElementById('fileInput');
 const searchInput = document.getElementById('searchInput');
@@ -29,17 +42,19 @@ let products = [];
 
 // Attempt to load from a central API if configured (set window.__API_BASE = 'http://host:port')
 async function serverLoadProducts() {
-  if (!window.__API_BASE) throw new Error('No API base');
-  const res = await fetch(window.__API_BASE.replace(/\/$/, '') + '/api/products');
+  const base = getApiBaseOrigin(window.__API_BASE);
+  if (!base) throw new Error('No API base');
+  const res = await fetch(base + '/api/products');
   if (!res.ok) throw new Error('Failed to fetch from server');
   return await res.json();
 }
 
 async function serverSaveProducts(p) {
-  if (!window.__API_BASE) throw new Error('No API base');
+  const base = getApiBaseOrigin(window.__API_BASE);
+  if (!base) throw new Error('No API base');
   const headers = { 'Content-Type': 'application/json' };
   if (window.__API_KEY) headers['x-api-key'] = window.__API_KEY;
-  const res = await fetch(window.__API_BASE.replace(/\/$/, '') + '/api/products', { method: 'POST', headers, body: JSON.stringify(p) });
+  const res = await fetch(base + '/api/products', { method: 'POST', headers, body: JSON.stringify(p) });
   if (!res.ok) throw new Error('Failed to save to server');
   return await res.json();
 }
@@ -77,35 +92,49 @@ function syncSave(p) {
       console.info('[auto-detect] no server detected on same origin', e && e.message);
     }
   }
-    // If still no API_BASE, try a known public URL automatically so users don't need to open Config each time
-    if (!window.__API_BASE) {
+    // Try to load from server automatically on startup (prefer remote over local)
+    async function tryAutoServerLoad() {
+      showLoading('Cargando productos desde servidor...');
+      // If no API_BASE configured, probe a known public server once
       try {
-        const known = 'https://inventario-zrlk.onrender.com';
-        const tryUrl = known.replace(/\/$/, '') + '/api/products';
-        const r = await fetch(tryUrl, { cache: 'no-cache' });
-        if (r.ok) {
-          window.__API_BASE = known.replace(/\/$/, '');
-          localStorage.setItem('API_BASE', window.__API_BASE);
-          console.info('[auto-fallback] API_BASE set to', window.__API_BASE);
-          const remote = await r.json();
-          if (Array.isArray(remote) && remote.length > 0) {
-            products = remote;
-            saveProducts(products);
+        if (!window.__API_BASE) {
+        try {
+          const known = 'https://inventario-zrlk.onrender.com';
+          const tryUrl = known.replace(/\/$/, '') + '/api/products';
+          const r = await fetch(tryUrl, { cache: 'no-cache' });
+          if (r.ok) {
+            window.__API_BASE = known.replace(/\/$/, '');
+            localStorage.setItem('API_BASE', window.__API_BASE);
+            console.info('[auto-fallback] API_BASE set to', window.__API_BASE);
+            const remote = await r.json();
+            if (Array.isArray(remote) && remote.length > 0) {
+              products = remote;
+              saveProducts(products);
+              return true;
+            }
           }
+        } catch (e) {
+          console.info('[auto-fallback] known server not reachable', e && e.message);
         }
-      } catch (e) {
-        console.info('[auto-fallback] known server not reachable', e && e.message);
       }
+        // If API_BASE is configured, try to load from it
+        if (window.__API_BASE) {
+          try {
+            const remote = await serverLoadProducts();
+            if (Array.isArray(remote) && remote.length > 0) {
+              products = remote;
+              saveProducts(products); // keep local cache
+              return true;
+            }
+          } catch (e) { console.info('Could not load products from API:', e); }
+        }
+      } finally {
+        hideLoading();
+      }
+      return false;
     }
-  if (window.__API_BASE) {
-    try {
-      const remote = await serverLoadProducts();
-      if (Array.isArray(remote) && remote.length > 0) {
-        products = remote;
-        saveProducts(products); // keep local cache
-      }
-    } catch (e) { console.info('Could not load products from API:', e); }
-  }
+
+    await tryAutoServerLoad();
   if (!products || !Array.isArray(products) || products.length === 0) {
     products = loadProducts();
     // If still empty, keep products as an empty array — do not inject sample data.
@@ -495,6 +524,32 @@ function showToast(message, ms = 3000, type = '', actionsHtml = '') {
   }
 }
 
+// Loading overlay helper (persistent spinner)
+function showLoading(message = 'Cargando...') {
+  let ov = document.getElementById('loadingOverlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'loadingOverlay';
+    ov.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.35);z-index:9999;';
+    ov.innerHTML = `<div style="background:#fff;padding:16px 18px;border-radius:8px;display:flex;gap:12px;align-items:center;box-shadow:0 6px 20px rgba(0,0,0,0.18)"><div class="spinner" style="width:26px;height:26px;border:4px solid #e6e6e6;border-top-color:#1976d2;border-radius:50%;animation:spin 1s linear infinite"></div><div class="loading-msg" style="font-size:14px;color:#222">${message}</div></div>`;
+    document.body.appendChild(ov);
+    if (!document.getElementById('loadingOverlayStyles')) {
+      const s = document.createElement('style');
+      s.id = 'loadingOverlayStyles';
+      s.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+      document.head.appendChild(s);
+    }
+  } else {
+    const msg = ov.querySelector('.loading-msg'); if (msg) msg.textContent = message;
+    ov.style.display = 'flex';
+  }
+}
+
+function hideLoading() {
+  const ov = document.getElementById('loadingOverlay');
+  if (ov) ov.remove();
+}
+
 if (fileButton && fileInput) {
   fileButton.addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', async (e) => {
@@ -749,8 +804,11 @@ function showServerHistoryPanel(triggerBtn) {
   }
   panel.innerHTML = `<h3>Historial servidor (últimas 10)</h3><div class="history-loading">Cargando...</div>`;
   // fetch history
-  fetch(window.__API_BASE.replace(/\/$/, '') + '/api/history/last?n=10')
-    .then(r => r.json())
+  try {
+    const base = getApiBaseOrigin(window.__API_BASE);
+    if (!base) throw new Error('No API base');
+    fetch(base + '/api/history/last?n=10')
+      .then(r => r.json())
     .then(list => {
       if (!Array.isArray(list) || list.length === 0) {
         panel.innerHTML = `<h3>Historial servidor (0)</h3><div class="history-empty">No hay entradas</div>`;
@@ -783,7 +841,9 @@ function showServerHistoryPanel(triggerBtn) {
         try {
           const headers = { 'Content-Type': 'application/json' };
           if (window.__API_KEY) headers['x-api-key'] = window.__API_KEY;
-          const res = await fetch(window.__API_BASE.replace(/\/$/, '') + '/api/products', { method: 'POST', headers, body: JSON.stringify(entry.before || []) });
+          const base = getApiBaseOrigin(window.__API_BASE);
+          if (!base) throw new Error('No API base');
+          const res = await fetch(base + '/api/products', { method: 'POST', headers, body: JSON.stringify(entry.before || []) });
           if (!res.ok) throw new Error('restore failed');
           // reload products from server
           const remote = await serverLoadProducts();
@@ -801,6 +861,10 @@ function showServerHistoryPanel(triggerBtn) {
       console.error('history fetch err', err);
       panel.innerHTML = `<h3>Historial servidor</h3><div class="history-empty">Error cargando historial</div>`;
     });
+  } catch (err) {
+    console.warn('history fetch setup failed', err);
+    panel.innerHTML = `<h3>Historial servidor</h3><div class="history-empty">Configura el servidor primero</div>`;
+  }
 
   // position near trigger if provided
   if (triggerBtn && triggerBtn.getBoundingClientRect) {
@@ -830,6 +894,7 @@ if (loadProductsBtn) {
     e.stopPropagation();
     // try to load from server (prefer remote)
     const tryServer = async () => {
+      showLoading('Cargando productos desde servidor...');
       try {
         // if no API_BASE is configured, attempt the known public server once
         if (!window.__API_BASE) {
@@ -856,6 +921,8 @@ if (loadProductsBtn) {
       } catch (err) {
         console.warn('server load failed', err);
         return false;
+      } finally {
+        hideLoading();
       }
     };
 
