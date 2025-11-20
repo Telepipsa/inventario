@@ -277,27 +277,32 @@ body {
   .icon-picker { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); }
 }
 
-/* Responsive layout for small screens: stack table rows as cards */
+/* Responsive: compact table for small/medium screens — keep table layout but shrink sizes and allow horizontal scroll */
 @media (max-width: 720px) {
-  .app-header { padding: 12px; align-items: flex-start; flex-wrap: wrap; }
-  .app-header .brand { width:100%; display:flex; align-items:center; gap:8px; }
-  .app-header .actions { width:100%; justify-content: flex-end; margin-top:8px; }
-  .container { margin: 10px; padding: 0 8px; }
-  .table { box-shadow: none; border-radius: 8px; }
-  .table thead { display: none; }
-  .table, .table tbody, .table tr, .table td { display: block; width: 100%; }
-  .table tr { margin-bottom: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--card); }
-  .table td { padding: 6px 0; border: none; }
-  .table td:first-child { display: none; } /* hide checkbox in compact view (handled by long-press/select later) */
-  .product-cell { display:flex; align-items:flex-start; gap:10px; }
-  .product-cell img { width:48px; height:48px; flex: 0 0 48px; }
+  .app-header { padding: 10px 12px; align-items: center; }
+  /* Stack header: title centered on top, actions full-width below */
+  .app-header { flex-direction: column; align-items: center; }
+  .app-header .brand { width:100%; display:flex; justify-content:center; align-items:center; gap:8px; order: 1; }
+  .app-header .actions { order: 2; width:100%; justify-content:center; }
+  .app-header .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; justify-content:flex-end; }
+  .app-header .actions .btn, .app-header .actions .btn-outline { padding:6px 8px; font-size:14px; min-width:56px; }
+  .container { margin: 8px; padding: 0 8px; }
+  .table { box-shadow: none; border-radius: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table th, .table td { padding: 8px 10px; font-size: 13px; white-space: nowrap; }
+  .table thead { display: table-header-group; }
+  .product-cell { display:flex; align-items:center; gap:8px; }
+  .product-cell img { width:32px; height:32px; flex: 0 0 32px; }
   .product-cell div { flex:1; min-width:0; }
-  .stock-controls { margin-top:6px; gap:10px; }
-  .stock-controls .stock-value { min-width:40px; }
+  .stock-controls { gap:8px; }
+  .stock-controls .stock-value { min-width:34px; font-size:13px; }
   .modal-content { min-width: auto; width: calc(100vw - 24px); box-sizing: border-box; }
   .icon-picker { position: fixed; left: 50%; transform: translateX(-50%); bottom: 20px; top: auto; max-width: 96%; }
   .icon-picker .grid { grid-template-columns: repeat(4, 1fr); gap:6px; }
-  .icon-picker .item img { width:48px; height:48px; }
+  .icon-picker .item img { width:40px; height:40px; }
+
+  /* Ensure table controls (buttons + search) can wrap into two lines without overflowing */
+  .table-controls { display:flex; flex-wrap:wrap; gap:8px; justify-content:space-between; }
+  .table-controls .controls-left, .table-controls .controls-right { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 }
 
 /* Extra small screens (iPhone portrait ~390px) tweaks */
@@ -319,4 +324,63 @@ body {
   .toast { left: 50%; right: auto; transform: translateX(-50%) translateY(8px); width: calc(100% - 40px); max-width: 520px; bottom: 14px; }
   /* modal full-width friendly */
   .modal-content { padding: 14px; width: calc(100vw - 28px); }
+  /* further compact layout for very small screens */
+  .app-header .actions { gap:6px; }
+  .app-header .actions .btn, .app-header .actions .btn-outline, .btn { padding:6px 8px; font-size:13px; }
+  .table th, .table td { padding:8px 10px; font-size:13px; }
+  .product-cell img { width:36px; height:36px; flex: 0 0 36px; }
+  .product-cell .name, .product-cell .code { font-size:13px; }
+  /* make table-controls wrap into two lines if needed */
+  .table-controls { flex-wrap: wrap; gap:8px; }
+  .table-controls .controls-left, .table-controls .controls-right { width:100%; display:flex; flex-wrap:wrap; gap:8px; }
+}
+
+/* Medium small screens: reduce font to 10px and tighten spacing */
+@media (max-width: 1000px) {
+  .table th, .table td { font-size: 10px; padding: 6px 8px; }
+  .product-cell { gap: 6px; }
+  .product-cell img { width: 28px; height: 28px; flex: 0 0 28px; }
+  .stock-controls .stock-value { min-width:30px; font-size:12px; }
+  /* make small stock buttons smaller if present */
+  .stock-controls button, .stock-controls .btn { padding:4px 6px; font-size:12px; }
+  .table-controls input[type="text"] { padding:6px 8px; font-size:12px; }
+}
+
+/* Very small screens: <=500px use compact sizing and 8px fonts */
+@media (max-width: 500px) {
+  :root { --card-padding: 6px; }
+  .table th, .table td { font-size: 8px; padding: 3px 1px; }
+  .product-cell { gap: 3px; }
+  .product-cell img { width: 20px; height: 20px; flex: 0 0 20px; }
+  /* truncate product name to ~25 characters with ellipsis */
+  .product-cell > div > div { display: inline-block; max-width: 25ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+  .product-cell .name, .product-cell .code { font-size: 8px; }
+  .stock-controls .stock-value { min-width:2px; font-size:8px; }
+  .stock-controls button, .btn-stock-plus, .btn-stock-minus { padding:2px 4px; font-size:8px; }
+  /* edit button compact */
+  .btn-edit { font-size:8px; padding:4px; }
+  .btn, .btn-outline { padding:6px 8px; font-size:10px; }
+  .table-controls { gap:6px; }
+  .table-controls input[type="text"] { padding:5px 6px; font-size:10px; }
+  /* reduce icon-picker sizes too */
+  .icon-picker .item img { width:30px; height:30px; }
+  /* ensure horizontal table scroll still works but reduce whitespace */
+  .table { overflow-x: auto; }
+}
+
+/* Ensure popover modals are centered on very small screens even if JS sets inline position */
+@media (max-width: 520px) {
+  .modal.popover {
+    position: fixed !important;
+    left: 50% !important;
+    top: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    visibility: visible !important;
+  }
+  .modal.popover::before { display: none !important; }
+}
+
+/* Make action buttons' font smaller on mobile */
+@media (max-width: 720px) {
+  .app-header .actions .btn, .app-header .actions .btn-outline { font-size: 8px !important; padding:6px 6px !important; }
 }
