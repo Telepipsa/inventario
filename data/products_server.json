@@ -1,1 +1,8 @@
-[]
+[
+  {
+    "producto": "Queso",
+    "stock": 20,
+    "caducidad": "2025-11-20",
+    "icon": "icon-192.png"
+  }
+]

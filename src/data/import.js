@@ -24,6 +24,8 @@ export async function importFile(file) {
 
 function normalizeRow(row) {
   return {
+    // keep original product code (various possible column names)
+    codigo: (row.codigo ?? row.Codigo ?? row.CODIGO ?? row.code ?? row.Code ?? row.CodigoProducto ?? '').toString().trim(),
     producto: (row.producto ?? row.Producto ?? '').toString().trim(),
     stock: (function() {
       const s = row.stock ?? row.Stock ?? 0;

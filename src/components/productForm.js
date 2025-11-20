@@ -1,5 +1,6 @@
 // /src/components/productForm.js
 export function fillForm(p) {
+  document.getElementById('pfCodigo').value = p.codigo || '';
   document.getElementById('pfName').value = p.producto || '';
   document.getElementById('pfStock').value = p.stock ?? 0;
   // normalize expiry to YYYY-MM-DD so <input type="date"> can display it
@@ -11,6 +12,7 @@ export function fillForm(p) {
   if (preview) preview.src = `./public/icons/${iconValue}`;
 }
 export function readForm() {
+  const codigo = document.getElementById('pfCodigo').value.trim();
   const name = document.getElementById('pfName').value.trim();
   const stock = +document.getElementById('pfStock').value;
   let expiry = document.getElementById('pfExpiry').value.trim();
@@ -20,7 +22,7 @@ export function readForm() {
   // expiry is optional; if provided, must be YYYY-MM-DD
   if (expiry === '') expiry = '';
   else if (!/^\d{4}-\d{2}-\d{2}$/.test(expiry)) { alert('Fecha en formato YYYY-MM-DD'); return null; }
-  return { producto: name, stock, caducidad: expiry, icon };
+  return { codigo: codigo || '', producto: name, stock, caducidad: expiry, icon };
 }
 
 // helpers
