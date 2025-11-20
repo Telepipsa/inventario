@@ -23,22 +23,61 @@ export async function importFile(file) {
 }
 
 function normalizeRow(row) {
+  // Build a normalized key -> value map so we can accept CSVs/XLXS with messy headers
+  const normKey = (k) => {
+    if (k === undefined || k === null) return '';
+    try {
+      return k.toString().trim()
+        .normalize('NFD')
+        .replace(/\u0300-\u036f/g, '')
+        .replace(/[^0-9a-zA-Z\s]/g, '')
+        .toLowerCase()
+        .replace(/\s+/g, '');
+    } catch (e) { return k.toString().toLowerCase().trim(); }
+  };
+  const m = {};
+  Object.keys(row || {}).forEach(k => {
+    const nk = normKey(k);
+    m[nk] = row[k];
+  });
+
+  const pick = (cands) => {
+    for (const c of cands) {
+      if (m[c] !== undefined && m[c] !== null && String(m[c]).toString().trim() !== '') return m[c];
+    }
+    return undefined;
+  };
+
+  // possible header names (normalized) for each field
+  const codeCandidates = ['codigo', 'cod', 'code', 'codigoproducto', 'codigo_producto', 'predeterminado', 'predeterminadocodigo'];
+  const nameCandidates = ['producto', 'product', 'predeterminado', 'descripcion', 'nombre'];
+  const stockCandidates = ['stock', 'cantidad', 'qty', 'units', 'unidades'];
+  const dateCandidates = ['caducidad', 'fecha', 'vencimiento', 'expiry', 'expiracion'];
+  const iconCandidates = ['icon', 'icono'];
+
+  const rawCode = pick(codeCandidates) ?? '';
+  const rawName = pick(nameCandidates) ?? '';
+  const rawStock = pick(stockCandidates);
+  const rawDate = pick(dateCandidates) ?? '';
+  const rawIcon = pick(iconCandidates) ?? '';
+
+  // normalize stock to integer
+  let stockVal = 0;
+  if (rawStock !== undefined && rawStock !== null && String(rawStock).toString().trim() !== '') {
+    const n = parseInt(String(rawStock).replace(/[^0-9\-]/g, ''), 10);
+    stockVal = Number.isFinite(n) ? n : 0;
+  }
+
+  // normalize date
+  let dateVal = '';
+  if (rawDate instanceof Date) dateVal = rawDate.toISOString().slice(0,10);
+  else if (rawDate && String(rawDate).toString().trim() !== '') dateVal = String(rawDate).trim();
+
   return {
-    // keep original product code (various possible column names)
-    codigo: (row.codigo ?? row.Codigo ?? row.CODIGO ?? row.code ?? row.Code ?? row.CodigoProducto ?? '').toString().trim(),
-    producto: (row.producto ?? row.Producto ?? '').toString().trim(),
-    stock: (function() {
-      const s = row.stock ?? row.Stock ?? 0;
-      const n = parseInt(s, 10);
-      return Number.isFinite(n) ? n : 0;
-    })(),
-    caducidad: (function() {
-      const v = row.caducidad ?? row.Caducidad ?? row.fecha ?? '';
-      if (!v) return '';
-      if (v instanceof Date) return v.toISOString().slice(0,10);
-      return v.toString().trim();
-    })(),
-    // no public 'code' field per request
-    icon: (row.icon ?? row.Icon ?? '').toString().trim()
+    codigo: rawCode === undefined || rawCode === null ? '' : String(rawCode).toString().trim(),
+    producto: rawName === undefined || rawName === null ? '' : String(rawName).toString().trim(),
+    stock: stockVal,
+    caducidad: dateVal,
+    icon: rawIcon === undefined || rawIcon === null ? '' : String(rawIcon).toString().trim()
   };
 }

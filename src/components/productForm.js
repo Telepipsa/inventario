@@ -1,7 +1,8 @@
 // /src/components/productForm.js
 export function fillForm(p) {
-  // prefer explicit codigo but fall back to other common keys
-  document.getElementById('pfCodigo').value = (p.codigo || p.code || p.Codigo || p.CODIGO || p.Code || p.codigoProducto) || '';
+  // prefer explicit codigo but fall back to other common keys; trim whitespace
+  const rawCode = (p && (p.codigo || p.predeterminado || p.code || p.Codigo || p.CODIGO || p.Code || p.codigoProducto)) || '';
+  try { document.getElementById('pfCodigo').value = rawCode.toString().trim(); } catch (e) { document.getElementById('pfCodigo').value = '' }
   document.getElementById('pfName').value = p.producto || '';
   document.getElementById('pfStock').value = p.stock ?? 0;
   // normalize expiry to YYYY-MM-DD so <input type="date"> can display it

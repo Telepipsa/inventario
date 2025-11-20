@@ -18,6 +18,11 @@ function formatExpiry(val) {
 export function renderTable(products) {
   lastDataset = products;
   const table = document.getElementById('productTable');
+  // helper to safely obtain a trimmed code value from a product
+  function displayCode(p) {
+    const raw = (p && (p.codigo || p.predeterminado || p.code || p.Codigo || p.CODIGO || p.codigoProducto || p.Code)) || '';
+    try { return raw.toString().trim(); } catch (e) { return '';} 
+  }
   table.innerHTML = `
     <thead>
       <tr>
@@ -33,7 +38,7 @@ export function renderTable(products) {
       ${products.map((p, i) => `
         <tr data-index="${i}" data-global-index="${window.__products && Array.isArray(window.__products) ? window.__products.findIndex(q => q === p) : i}" class="${p.__highlight ? 'row-'+p.__highlight : ''}">
           <td><input type="checkbox" class="row-check" data-index="${i}" data-global-index="${window.__products && Array.isArray(window.__products) ? window.__products.findIndex(q => q === p) : i}"></td>
-          <td style="font-family:monospace;">${(p.codigo || p.code || p.Codigo || p.CODIGO || p.codigoProducto || p.Code) || ''}</td>
+          <td style="font-family:monospace;">${displayCode(p)}</td>
           <td class="product-cell">
             <img src="./public/icons/${p.icon || 'icon-192.png'}" alt="${p.producto}" onerror="this.src='./public/icons/icon-192.png'">
             <div>

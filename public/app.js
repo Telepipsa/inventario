@@ -77,6 +77,26 @@ function syncSave(p) {
       console.info('[auto-detect] no server detected on same origin', e && e.message);
     }
   }
+    // If still no API_BASE, try a known public URL automatically so users don't need to open Config each time
+    if (!window.__API_BASE) {
+      try {
+        const known = 'https://inventario-zrlk.onrender.com';
+        const tryUrl = known.replace(/\/$/, '') + '/api/products';
+        const r = await fetch(tryUrl, { cache: 'no-cache' });
+        if (r.ok) {
+          window.__API_BASE = known.replace(/\/$/, '');
+          localStorage.setItem('API_BASE', window.__API_BASE);
+          console.info('[auto-fallback] API_BASE set to', window.__API_BASE);
+          const remote = await r.json();
+          if (Array.isArray(remote) && remote.length > 0) {
+            products = remote;
+            saveProducts(products);
+          }
+        }
+      } catch (e) {
+        console.info('[auto-fallback] known server not reachable', e && e.message);
+      }
+    }
   if (window.__API_BASE) {
     try {
       const remote = await serverLoadProducts();
@@ -88,13 +108,23 @@ function syncSave(p) {
   }
   if (!products || !Array.isArray(products) || products.length === 0) {
     products = loadProducts();
-    if (!products || !Array.isArray(products) || products.length === 0) {
-      products = [ { producto: 'Queso', stock: 20, caducidad: '2025-11-20', icon: 'icon-192.png' } ];
-      syncSave(products);
-    }
+    // If still empty, keep products as an empty array — do not inject sample data.
+    if (!products || !Array.isArray(products)) products = [];
   }
+  // normalize code fields (trim whitespace) so table/form show them correctly
+  try {
+    products.forEach(p => {
+      if (!p || typeof p !== 'object') return;
+      if (p.codigo) p.codigo = p.codigo.toString().trim();
+      if (p.code) p.code = p.code.toString().trim();
+      if (p.Codigo) p.Codigo = p.Codigo.toString().trim();
+    });
+  } catch (e) { console.warn('code normalization failed', e); }
+
   // expose globally
   window.__products = products;
+  // ensure UI reflects loaded products (init may run before initial render)
+  try { if (typeof renderAndBind === 'function') renderAndBind(); } catch (e) { console.warn('render after init failed', e); }
 })();
 
 // expose products globally for component utilities (used for mapping selections)
@@ -792,6 +822,30 @@ function serverHistoryOutsideClick(e) {
 
 const serverHistoryBtn = document.getElementById('serverHistoryBtn');
 if (serverHistoryBtn) serverHistoryBtn.addEventListener('click', (e) => { e.stopPropagation(); showServerHistoryPanel(serverHistoryBtn); });
+
+// Load products button (loads from localStorage)
+const loadProductsBtn = document.getElementById('loadProductsBtn');
+if (loadProductsBtn) {
+  loadProductsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    try {
+      const local = loadProducts();
+      if (!local || !Array.isArray(local) || local.length === 0) {
+        showToast('No hay productos guardados localmente', 2000, 'error');
+        return;
+      }
+      products = local;
+      // normalize code-like fields
+      try { products.forEach(p => { if (p && typeof p === 'object') { if (p.codigo) p.codigo = String(p.codigo).trim(); if (p.predeterminado) p.predeterminado = String(p.predeterminado).trim(); if (p.code) p.code = String(p.code).trim(); } }); } catch (e) {}
+      window.__products = products;
+      renderAndBind();
+      showToast(`Cargados ${products.length} productos desde local`, 2000, 'success');
+    } catch (err) {
+      console.error('load local products error', err);
+      showToast('Error cargando productos locales', 2500, 'error');
+    }
+  });
+}
 
 // register SW proactively (non-blocking)
 registerServiceWorker();
