@@ -6,14 +6,7 @@
     "beforeCount": 0,
     "afterCount": 1,
     "before": [],
-    "after": [
-      {
-        "producto": "Queso",
-        "stock": 20,
-        "caducidad": "2025-11-20",
-        "icon": "icon-192.png"
-      }
-    ]
+    "after": []
   },
   {
     "id": 1763640884434,
@@ -21,21 +14,8 @@
     "type": "replace",
     "beforeCount": 1,
     "afterCount": 219,
-    "before": [
-      {
-        "producto": "Queso",
-        "stock": 20,
-        "caducidad": "2025-11-20",
-        "icon": "icon-192.png"
-      }
-    ],
+    "before": [],
     "after": [
-      {
-        "producto": "Queso",
-        "stock": 20,
-        "caducidad": "2025-11-20",
-        "icon": "icon-192.png"
-      },
       {
         "codigo": "4Q",
         "producto": "MEZCLA 4 QUESOS",
@@ -1790,12 +1770,6 @@
     "afterCount": 219,
     "before": [
       {
-        "producto": "Queso",
-        "stock": 20,
-        "caducidad": "2025-11-20",
-        "icon": "icon-192.png"
-      },
-      {
         "codigo": "4Q",
         "producto": "MEZCLA 4 QUESOS",
         "stock": 0,
@@ -3541,12 +3515,6 @@
       }
     ],
     "after": [
-      {
-        "producto": "Queso",
-        "stock": 20,
-        "caducidad": "2025-11-20",
-        "icon": "icon-192.png"
-      },
       {
         "codigo": "4Q",
         "producto": "MEZCLA 4 QUESOS",
@@ -5301,12 +5269,6 @@
     "afterCount": 219,
     "before": [
       {
-        "producto": "Queso",
-        "stock": 20,
-        "caducidad": "2025-11-20",
-        "icon": "icon-192.png"
-      },
-      {
         "codigo": "4Q",
         "producto": "MEZCLA 4 QUESOS",
         "stock": 0,
@@ -7052,12 +7014,6 @@
       }
     ],
     "after": [
-      {
-        "producto": "Queso",
-        "stock": 20,
-        "caducidad": "2025-11-20",
-        "icon": "icon-192.png"
-      },
       {
         "codigo": "4Q",
         "producto": "MEZCLA 4 QUESOS",
@@ -8812,12 +8768,6 @@
     "afterCount": 219,
     "before": [
       {
-        "producto": "Queso",
-        "stock": 20,
-        "caducidad": "2025-11-20",
-        "icon": "icon-192.png"
-      },
-      {
         "codigo": "4Q",
         "producto": "MEZCLA 4 QUESOS",
         "stock": 0,
@@ -10563,12 +10513,6 @@
       }
     ],
     "after": [
-      {
-        "producto": "Queso",
-        "stock": 20,
-        "caducidad": "2025-11-20",
-        "icon": "icon-192.png"
-      },
       {
         "codigo": "4Q",
         "producto": "MEZCLA 4 QUESOS",
