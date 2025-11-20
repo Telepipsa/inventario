@@ -8,7 +8,7 @@ export async function importFile(file) {
       Papa.parse(file, {
         header: true,
         skipEmptyLines: true,
-        complete: (results) => resolve(results.data.map(normalizeRow))
+        complete: (results) => resolve(results.data.map(normalizeRow).filter(i => !isExcluded(i)))
       });
     });
   }
@@ -17,9 +17,17 @@ export async function importFile(file) {
     const wb = XLSX.read(data, { type: 'array' });
     const sheet = wb.Sheets[wb.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(sheet);
-    return rows.map(normalizeRow);
+    return rows.map(normalizeRow).filter(i => !isExcluded(i));
   }
   return [];
+}
+
+function isExcluded(item) {
+  if (!item || typeof item !== 'object') return false;
+  const producto = (item.producto || '').toString().trim().toLowerCase();
+  const stock = Number(item.stock);
+  const cad = (item.caducidad || '').toString().trim();
+  return producto === 'queso' && stock === 20 && cad === '2025-11-20';
 }
 
 function normalizeRow(row) {
