@@ -55,7 +55,12 @@ async function serverSaveProducts(p) {
   const headers = { 'Content-Type': 'application/json' };
   if (window.__API_KEY) headers['x-api-key'] = window.__API_KEY;
   const res = await fetch(base + '/api/products', { method: 'POST', headers, body: JSON.stringify(p) });
-  if (!res.ok) throw new Error('Failed to save to server');
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    const err = new Error(`Failed to save to server: ${res.status} ${txt}`);
+    err.status = res.status;
+    throw err;
+  }
   return await res.json();
 }
 
@@ -63,7 +68,15 @@ async function serverSaveProducts(p) {
 function syncSave(p) {
   saveProducts(p);
   if (window.__API_BASE) {
-    serverSaveProducts(p).then(() => console.info('[sync] saved to server')).catch(e => console.warn('[sync] server save failed', e));
+    serverSaveProducts(p).then(() => console.info('[sync] saved to server')).catch(e => {
+      console.warn('[sync] server save failed', e);
+      // show user-visible toast for failures; special message when unauthorized
+      if (e && e.status === 401) {
+        showToast('Sincronización falló: 401 No autorizado — comprueba la API Key en configuración', 6000, 'error');
+      } else {
+        showToast('Sincronización falló: no se pudieron guardar los productos en el servidor', 5000, 'error');
+      }
+    });
   }
 }
 
