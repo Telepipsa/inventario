@@ -299,3 +299,24 @@ body {
   .icon-picker .grid { grid-template-columns: repeat(4, 1fr); gap:6px; }
   .icon-picker .item img { width:48px; height:48px; }
 }
+
+/* Extra small screens (iPhone portrait ~390px) tweaks */
+@media (max-width: 400px) {
+  :root { --primary: #7c4dff; }
+  .container { padding: 0 10px; }
+  .app-header { padding: 10px; }
+  .app-header .brand img { width: 34px; height: 34px; }
+  .app-header .brand .title { font-size: 16px; }
+  .actions .btn, .btn { padding: 10px 12px; font-size: 15px; }
+  .table tr { padding: 12px; }
+  .product-cell img { width:44px; height:44px; }
+  .product-cell { gap:8px; }
+  .stock-controls .stock-value { min-width:44px; font-size:15px; }
+  /* icon picker: 3 columns to avoid tiny icons on very small screens */
+  .icon-picker .grid { grid-template-columns: repeat(3, 1fr); gap:6px; max-width: 96vw; }
+  .icon-picker { left: 50%; transform: translateX(-50%); bottom: 12px; top: auto; }
+  /* toast centered and wider for readability */
+  .toast { left: 50%; right: auto; transform: translateX(-50%) translateY(8px); width: calc(100% - 40px); max-width: 520px; bottom: 14px; }
+  /* modal full-width friendly */
+  .modal-content { padding: 14px; width: calc(100vw - 28px); }
+}

@@ -63,6 +63,15 @@ app.get('/api/products', (req, res) => {
   res.json(items);
 });
 
+// health check for platform (Render) monitoring
+app.get('/healthz', (req, res) => {
+  try {
+    res.status(200).json({ ok: true, ts: new Date().toISOString() });
+  } catch (e) {
+    res.status(500).json({ ok: false });
+  }
+});
+
 // Replace entire list (write-protected if API_KEY is set)
 app.post('/api/products', (req, res) => {
   if (API_KEY) {

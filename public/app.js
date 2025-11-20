@@ -53,6 +53,30 @@ function syncSave(p) {
 }
 
 (async function initProducts() {
+  // load server config from localStorage if present (and attempt auto-detect)
+  try { loadServerConfig(); } catch (e) { console.warn('loadServerConfig failed', e); }
+
+  // If no API_BASE configured, try to auto-detect a server on the same origin
+  if (!window.__API_BASE) {
+    try {
+      const tryUrl = window.location.origin.replace(/\/$/, '') + '/api/products';
+      const r = await fetch(tryUrl, { cache: 'no-cache' });
+      if (r.ok) {
+        // server present on same origin — use it by default (no API key assumed)
+        window.__API_BASE = window.location.origin.replace(/\/$/, '');
+        localStorage.setItem('API_BASE', window.__API_BASE);
+        console.info('[auto-detect] API_BASE set to', window.__API_BASE);
+        const remote = await r.json();
+        if (Array.isArray(remote) && remote.length > 0) {
+          products = remote;
+          saveProducts(products); // keep local cache
+        }
+      }
+    } catch (e) {
+      // ignore — no server on same origin
+      console.info('[auto-detect] no server detected on same origin', e && e.message);
+    }
+  }
   if (window.__API_BASE) {
     try {
       const remote = await serverLoadProducts();
@@ -627,11 +651,43 @@ function loadServerConfig() {
 }
 
 function saveServerConfig(base, key) {
-  if (base) localStorage.setItem('API_BASE', base); else localStorage.removeItem('API_BASE');
+  // normalize base: accept full URLs but store only the origin (protocol+host[:port])
+  let normalizedBase = '';
+  if (base) {
+    const raw = (base || '').toString().trim();
+    try {
+      const u = new URL(raw);
+      normalizedBase = u.origin;
+    } catch (e) {
+      // fallback: extract protocol+host using regex
+      const m = raw.match(/^(https?:\/\/[^/]+)/i);
+      if (m && m[1]) normalizedBase = m[1];
+      else normalizedBase = raw.replace(/\/$/, '');
+    }
+  }
+  if (normalizedBase) localStorage.setItem('API_BASE', normalizedBase); else localStorage.removeItem('API_BASE');
   if (key) localStorage.setItem('API_KEY', key); else localStorage.removeItem('API_KEY');
-  window.__API_BASE = base || null;
+  window.__API_BASE = normalizedBase || null;
   window.__API_KEY = key || null;
   showToast('Configuración de servidor guardada', 2000, 'success');
+  // try to load products from the configured server immediately so the user doesn't have to reload
+  if (normalizedBase) {
+    (async () => {
+      try {
+        const remote = await serverLoadProducts();
+        if (Array.isArray(remote)) {
+          products = remote;
+          syncSave(products);
+          window.__products = products;
+          renderAndBind();
+          showToast('Productos cargados desde servidor', 2000, 'success');
+        }
+      } catch (err) {
+        console.warn('Error cargando productos desde server tras guardar config', err);
+        showToast('No se pudieron cargar productos desde el servidor (revisa API_BASE/API_KEY)', 3500, 'error');
+      }
+    })();
+  }
 }
 
 const serverConfigBtn = document.getElementById('serverConfigBtn');
