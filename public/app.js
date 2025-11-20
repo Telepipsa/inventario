@@ -823,11 +823,46 @@ function serverHistoryOutsideClick(e) {
 const serverHistoryBtn = document.getElementById('serverHistoryBtn');
 if (serverHistoryBtn) serverHistoryBtn.addEventListener('click', (e) => { e.stopPropagation(); showServerHistoryPanel(serverHistoryBtn); });
 
-// Load products button (loads from localStorage)
+// Load products button: try server first, fallback to localStorage
 const loadProductsBtn = document.getElementById('loadProductsBtn');
 if (loadProductsBtn) {
-  loadProductsBtn.addEventListener('click', (e) => {
+  loadProductsBtn.addEventListener('click', async (e) => {
     e.stopPropagation();
+    // try to load from server (prefer remote)
+    const tryServer = async () => {
+      try {
+        // if no API_BASE is configured, attempt the known public server once
+        if (!window.__API_BASE) {
+          try {
+            const known = 'https://inventario-zrlk.onrender.com';
+            const r = await fetch(known.replace(/\/$/, '') + '/api/products', { cache: 'no-cache' });
+            if (r.ok) {
+              window.__API_BASE = known.replace(/\/$/, '');
+              localStorage.setItem('API_BASE', window.__API_BASE);
+            }
+          } catch (err) { /* ignore, will fallback to local */ }
+        }
+        if (!window.__API_BASE) throw new Error('No API_BASE');
+        const remote = await serverLoadProducts();
+        if (!Array.isArray(remote) || remote.length === 0) throw new Error('Empty remote response');
+        products = remote;
+        // normalize code-like fields
+        try { products.forEach(p => { if (p && typeof p === 'object') { if (p.codigo) p.codigo = String(p.codigo).trim(); if (p.predeterminado) p.predeterminado = String(p.predeterminado).trim(); if (p.code) p.code = String(p.code).trim(); } }); } catch (e) {}
+        syncSave(products);
+        window.__products = products;
+        renderAndBind();
+        showToast(`Cargados ${products.length} productos desde servidor`, 2000, 'success');
+        return true;
+      } catch (err) {
+        console.warn('server load failed', err);
+        return false;
+      }
+    };
+
+    const ok = await tryServer();
+    if (ok) return;
+
+    // fallback to local storage
     try {
       const local = loadProducts();
       if (!local || !Array.isArray(local) || local.length === 0) {
