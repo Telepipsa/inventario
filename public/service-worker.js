@@ -1,12 +1,13 @@
 // /public/service-worker.js
-const CACHE = 'inventario-v1';
+const CACHE = 'inventario-v2';
+// Use absolute paths so cached assets match requests regardless of SW location
 const ASSETS = [
-  './index.html',
-  './manifest.json',
-  './icons/icon-192.png',
-  './icons/icon-512.png',
-  '../src/app.js',
-  '../src/styles/main.css'
+  '/index.html',
+  '/manifest.json',
+  '/public/icons/icon-192.png',
+  '/public/icons/icon-512.png',
+  '/public/app.js',
+  '/src/styles/main.css'
 ];
 
 self.addEventListener('install', (e) => {
