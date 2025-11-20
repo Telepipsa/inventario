@@ -37,6 +37,7 @@ function getApiBaseOrigin(raw) {
 const fileButton = document.getElementById('fileButton');
 const fileInput = document.getElementById('fileInput');
 const searchInput = document.getElementById('searchInput');
+const clearCacheBtn = document.getElementById('clearCacheBtn');
 
 let products = [];
 
@@ -79,6 +80,37 @@ function syncSave(p) {
     });
   }
 }
+
+// Clear service worker, caches, localStorage/sessionStorage and reload the page
+async function clearAppCacheAndReload() {
+  if (!confirm('¿Borrar caché, service worker y datos locales? Se recargará la app.')) return;
+  showToast('Limpiando caché y datos locales...', 2500, '');
+  try {
+    // unregister service workers
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister().catch(()=>{})));
+    }
+    // delete caches
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k).catch(()=>{})));
+    }
+    // clear storage
+    try { localStorage.clear(); } catch(e) {}
+    try { sessionStorage.clear(); } catch(e) {}
+    // small delay to let unregisters settle
+    setTimeout(() => {
+      try { showToast('Recargando...', 1000, 'success'); } catch(e){}
+      location.reload();
+    }, 600);
+  } catch (err) {
+    console.error('clearAppCache failed', err);
+    showToast('Error limpiando caché (revisa consola)', 4000, 'error');
+  }
+}
+
+if (clearCacheBtn) clearCacheBtn.addEventListener('click', clearAppCacheAndReload);
 
 (async function initProducts() {
   // load server config from localStorage if present (and attempt auto-detect)
