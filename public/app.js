@@ -1,0 +1,735 @@
+import { renderTable, bindRowEvents, getSelectedIndexes } from '../src/components/table.js';
+import { fillForm, readForm, bindFormActions } from '../src/components/productForm.js';
+import { openModal, closeModal, bindModal } from '../src/components/modal.js';
+import { loadProducts, saveProducts } from '../src/data/storage.js';
+import { isTodayOrPast } from '../src/services/expiry.js';
+import { importFile } from '../src/data/import.js';
+
+console.log('✅ app.js cargado correctamente');
+
+// Normalize product names: remove accents/diacritics, punctuation, extra spaces and lowercase
+function normalizeName(s) {
+  if (!s) return '';
+  try {
+    return s.toString()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^0-9a-zA-Z\s]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
+  } catch (e) { return s.toString().trim().toLowerCase(); }
+}
+
+const fileButton = document.getElementById('fileButton');
+const fileInput = document.getElementById('fileInput');
+const searchInput = document.getElementById('searchInput');
+
+let products = loadProducts();
+if (!products || !Array.isArray(products) || products.length === 0) {
+  products = [
+    { producto: 'Queso', stock: 20, caducidad: '2025-11-20', icon: 'icon-192.png' }
+  ];
+  saveProducts(products);
+}
+
+// expose products globally for component utilities (used for mapping selections)
+window.__products = products;
+
+// History stack for undo operations (supports multiple undos)
+const HISTORY_MAX = 100;
+const historyStack = [];
+window.__history = historyStack;
+
+function deepClone(o) { return JSON.parse(JSON.stringify(o)); }
+
+function sortForDisplay(list) {
+  if (!list || !Array.isArray(list)) return list || [];
+  const now = new Date();
+  const startOfToday = new Date(now.toISOString().slice(0,10));
+  function toTime(v) {
+    if (!v) return null;
+    const d = new Date(v);
+    if (isNaN(d)) return null;
+    return d.getTime();
+  }
+  return list.slice().sort((a,b) => {
+    const aTime = toTime(a.caducidad);
+    const bTime = toTime(b.caducidad);
+    const aExpired = isTodayOrPast(a.caducidad);
+    const bExpired = isTodayOrPast(b.caducidad);
+    // expired first
+    if (aExpired && !bExpired) return -1;
+    if (!aExpired && bExpired) return 1;
+    // both expired -> show closest to today first (most recently expired)
+    if (aExpired && bExpired) {
+      if (aTime == null && bTime == null) return 0;
+      if (aTime == null) return 1;
+      if (bTime == null) return -1;
+      return bTime - aTime; // descending (closer to now first)
+    }
+    // both not expired -> show soonest expiry first
+    if (aTime == null && bTime == null) {
+      // fallback to name
+      const an = (a.producto || '').toString().toLowerCase();
+      const bn = (b.producto || '').toString().toLowerCase();
+      return an < bn ? -1 : (an > bn ? 1 : 0);
+    }
+    if (aTime == null) return 1;
+    if (bTime == null) return -1;
+    return aTime - bTime;
+  });
+}
+
+function computeChanges(before, after) {
+  const fields = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
+  const changes = [];
+  fields.forEach(f => {
+    const bv = before ? before[f] : undefined;
+    const av = after ? after[f] : undefined;
+    if (f === 'stock') {
+      const bnum = Number(bv ?? 0);
+      const anum = Number(av ?? 0);
+      if (bnum !== anum) changes.push({ field: 'stock', before: bnum, after: anum, delta: anum - bnum });
+    } else if (String(bv) !== String(av)) {
+      changes.push({ field: f, before: bv, after: av });
+    }
+  });
+  return changes;
+}
+
+function pushHistory(entry) {
+  // entry should be a plain object describing how to undo
+  historyStack.push(entry);
+  if (historyStack.length > HISTORY_MAX) historyStack.shift();
+  updateUndoButton();
+}
+
+function updateUndoButton() {
+  const btn = document.getElementById('undoBtn');
+  if (!btn) return;
+  btn.disabled = historyStack.length === 0;
+  btn.title = historyStack.length > 0 ? `Deshacer (${historyStack.length})` : 'Nada que deshacer';
+}
+
+function historyEntryDescription(entry) {
+  if (!entry || !entry.type) return 'Acción desconocida';
+  if (entry.type === 'add') return `Añadido: ${entry.item && entry.item.producto ? entry.item.producto : 'producto'}`;
+  if (entry.type === 'delete') {
+    const names = (entry.items || []).map(i => i.item && i.item.producto).filter(Boolean);
+    if (names.length === 1) return `Eliminado: ${names[0]}`;
+    return `Eliminados: ${(entry.items || []).length} producto(s)`;
+  }
+  if (entry.type === 'edit') {
+    const changes = entry.changes || [];
+    const name = (entry.after && entry.after.producto) || (entry.before && entry.before.producto) || '';
+    if (changes.length === 0) return `Editado: ${name || 'producto'}`;
+    // produce compact phrases
+    const parts = changes.map(c => {
+      if (c.field === 'stock') {
+        const d = c.delta || (Number(c.after || 0) - Number(c.before || 0));
+        return `Stock ${d > 0 ? '+'+d : d}`;
+      }
+      if (c.field === 'producto') return `Nombre`; 
+      if (c.field === 'caducidad') return `Caducidad`;
+      if (c.field === 'icon') return `Icono`;
+      return c.field;
+    });
+    return `${name ? name + ': ' : ''}${parts.join(', ')} modificado(s)`;
+  }
+  if (entry.type === 'import') {
+    const added = (entry.changes || []).filter(c => c.kind === 'added').length;
+    const updated = (entry.changes || []).filter(c => c.kind === 'updated').length;
+    return `Importación: +${added} añadidos, ${updated} actualizados`;
+  }
+  return 'Acción';
+}
+
+function historyEntryMeta(entry) {
+  if (!entry || !entry.type) return '';
+  if (entry.type === 'add') return entry.item && entry.item.producto ? `Producto: ${entry.item.producto}` : '';
+  if (entry.type === 'delete') {
+    const names = (entry.items || []).map(i => i.item && i.item.producto).filter(Boolean);
+    if (names.length <= 5) return `Productos: ${names.join(', ')}`;
+    return `Productos: ${names.slice(0,5).join(', ')} (+${names.length-5} más)`;
+  }
+  if (entry.type === 'edit') {
+    const changes = entry.changes || [];
+    if (changes.length === 0) return '';
+    return changes.map(c => {
+      if (c.field === 'stock') return `Stock: ${c.before} → ${c.after}`;
+      return `${c.field}: ${c.before ?? ''} → ${c.after ?? ''}`;
+    }).join(' · ');
+  }
+  if (entry.type === 'import') {
+    const added = (entry.changes || []).filter(c => c.kind === 'added').length;
+    const updated = (entry.changes || []).filter(c => c.kind === 'updated').length;
+    return `Añadidos: ${added}, Actualizados: ${updated}`;
+  }
+  return '';
+}
+
+function showHistoryPanel(triggerBtn) {
+  let panel = document.getElementById('historyPanel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'historyPanel';
+    panel.className = 'history-panel';
+    document.body.appendChild(panel);
+  }
+  // render history (newest first)
+  const entries = historyStack.slice().reverse();
+  panel.innerHTML = `<h3>Historial (${historyStack.length})</h3>` + (entries.length === 0 ? `<div class="history-empty">No hay acciones en el historial</div>` : entries.map((e, idx) => {
+    const globalIdx = historyStack.length - 1 - idx; // map reversed index to original
+    return `<div class="history-entry" data-idx="${globalIdx}">
+      <div>
+        <div class="desc">${historyEntryDescription(e)}</div>
+        <div class="meta">${historyEntryMeta(e)}</div>
+      </div>
+      <div>
+        <button class="entry-btn" data-idx="${globalIdx}">Deshacer</button>
+      </div>
+    </div>`;
+  }).join(''));
+
+  // position near trigger if provided
+  if (triggerBtn && triggerBtn.getBoundingClientRect) {
+    const r = triggerBtn.getBoundingClientRect();
+    panel.style.position = 'absolute';
+    panel.style.left = `${Math.max(8, r.left + window.scrollX)}px`;
+    panel.style.top = `${r.bottom + window.scrollY + 8}px`;
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+  }
+  // bind close on outside click
+  setTimeout(() => {
+    document.addEventListener('click', historyOutsideClick);
+  }, 0);
+
+  // bind entry buttons
+  panel.querySelectorAll('.entry-btn').forEach(b => b.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    const idx = +ev.currentTarget.dataset.idx;
+    // undo until this index (inclusive)
+    undoUntil(idx);
+    hideHistoryPanel();
+  }));
+}
+
+function hideHistoryPanel() {
+  const panel = document.getElementById('historyPanel');
+  if (!panel) return;
+  panel.remove();
+  document.removeEventListener('click', historyOutsideClick);
+}
+
+function historyOutsideClick(e) {
+  const panel = document.getElementById('historyPanel');
+  if (!panel) return;
+  if (panel.contains(e.target)) return;
+  const hb = document.getElementById('historyBtn');
+  if (hb && (hb === e.target || hb.contains(e.target))) return;
+  hideHistoryPanel();
+}
+
+function undoUntil(globalIdx) {
+  // globalIdx: index in historyStack to undo (0 = oldest, last = newest). We'll pop until we reach that index and applyUndo for each popped entry.
+  if (historyStack.length === 0) { showToast('Nada que deshacer', 1500); return; }
+  const targetPos = globalIdx;
+  // pop until historyStack.length -1 === targetPos
+  while (historyStack.length - 1 >= targetPos) {
+    const entry = historyStack.pop();
+    applyUndo(entry);
+  }
+  saveProducts(products);
+  window.__products = products;
+  renderAndBind();
+  updateUndoButton();
+  showToast('Acciones deshechas', 1800, 'success');
+}
+
+function applyUndo(entry) {
+  if (!entry || !entry.type) return;
+  if (entry.type === 'add') {
+    // undo add -> remove item at index
+    const i = entry.index;
+    if (i >= 0 && i < products.length) products.splice(i, 1);
+  } else if (entry.type === 'delete') {
+    // undo delete -> insert items at their original indices
+    const items = entry.items || [];
+    // restore in ascending order
+    items.sort((a,b) => a.index - b.index).forEach(it => {
+      products.splice(it.index, 0, deepClone(it.item));
+    });
+  } else if (entry.type === 'edit') {
+    const i = entry.index;
+    if (i >= 0 && i < products.length) {
+      products[i] = deepClone(entry.before);
+    }
+  } else if (entry.type === 'import') {
+    // handle changes: added (remove), updated (restore before)
+    const changes = entry.changes || [];
+    // remove additions first (descending indices)
+    const added = changes.filter(c => c.kind === 'added').sort((a,b) => b.index - a.index);
+    added.forEach(a => { if (a.index >=0 && a.index < products.length) products.splice(a.index, 1); });
+    // restore updated
+    const updated = changes.filter(c => c.kind === 'updated');
+    updated.forEach(u => { if (u.index >=0 && u.index < products.length) products[u.index] = deepClone(u.before); });
+  }
+}
+
+function undoLast() {
+  if (historyStack.length === 0) { showToast('Nada que deshacer', 1500); return; }
+  const entry = historyStack.pop();
+  applyUndo(entry);
+  saveProducts(products);
+  window.__products = products;
+  renderAndBind();
+  updateUndoButton();
+  showToast('Acción deshecha', 1800, 'success');
+}
+
+// wire header undo button
+const headerUndoBtn = document.getElementById('undoBtn');
+if (headerUndoBtn) {
+  headerUndoBtn.addEventListener('click', () => { undoLast(); });
+}
+
+// wire table history button (next to delete selected)
+const tableHistoryBtn = document.getElementById('historyBtn');
+if (tableHistoryBtn) {
+  tableHistoryBtn.addEventListener('click', (e) => { e.stopPropagation(); showHistoryPanel(tableHistoryBtn); });
+}
+
+updateUndoButton();
+
+let currentEditIndex = -1;
+
+function renderAndBind() {
+  const display = sortForDisplay(products);
+  renderTable(display);
+  bindRowEvents((index, dataset, btn) => {
+    const p = dataset[index];
+    // map to original products array by reference equality
+    currentEditIndex = products.findIndex(pr => pr === p);
+    fillForm(p);
+    // open as popover next to button when available
+    openModal({ target: btn });
+  }, display);
+
+  // Bind stock change events dispatched from table rows
+  document.querySelectorAll('.stock-controls').forEach(el => {
+    el.addEventListener('stock-change', (ev) => {
+      const delta = ev.detail.delta;
+      if (typeof delta !== 'number') return;
+      // prefer global index attribute (maps back to window.__products)
+      const globalIdxAttr = ev.currentTarget && ev.currentTarget.dataset ? ev.currentTarget.dataset.globalIndex : undefined;
+      let gi = (globalIdxAttr !== undefined && globalIdxAttr !== '') ? +globalIdxAttr : null;
+      // fallback to event detail index
+      if ((gi === null || Number.isNaN(gi)) && ev.detail && typeof ev.detail.index === 'number') gi = ev.detail.index;
+      if (gi === null || Number.isNaN(gi)) return;
+      const item = products[gi];
+      if (!item) return;
+      const before = deepClone(item);
+      // adjust stock (ensure numeric)
+      const cur = Number(item.stock ?? 0);
+      const next = Math.max(0, cur + delta);
+      products[gi].stock = next;
+      const afterState = deepClone(products[gi]);
+      pushHistory({ type: 'edit', index: gi, before: before, after: afterState, changes: computeChanges(before, afterState) });
+      saveProducts(products);
+      window.__products = products;
+      renderAndBind();
+    });
+  });
+}
+
+// Bind form actions
+bindFormActions({
+  onSave: () => {
+    const data = readForm();
+    if (!data) return;
+    if (currentEditIndex >= 0 && currentEditIndex < products.length) {
+      const before = deepClone(products[currentEditIndex]);
+      products[currentEditIndex] = data;
+      const afterState = deepClone(data);
+      pushHistory({ type: 'edit', index: currentEditIndex, before: before, after: afterState, changes: computeChanges(before, afterState) });
+    } else {
+      products.push(data);
+      const idx = products.length - 1;
+      pushHistory({ type: 'add', index: idx, item: deepClone(data) });
+    }
+    saveProducts(products);
+    window.__products = products;
+    renderAndBind();
+    closeModal();
+  },
+  onDelete: () => {
+    if (currentEditIndex < 0) return;
+    if (!confirm('¿Eliminar producto?')) return;
+    const removed = deepClone(products[currentEditIndex]);
+    products.splice(currentEditIndex, 1);
+    pushHistory({ type: 'delete', items: [{ index: currentEditIndex, item: removed }] });
+    saveProducts(products);
+    window.__products = products;
+    renderAndBind();
+    closeModal();
+  },
+  onCancel: () => {
+    closeModal();
+  }
+});
+
+bindModal(() => {
+  closeModal();
+});
+
+// File import button
+function showToast(message, ms = 3000, type = '', actionsHtml = '') {
+  const t = document.getElementById('toast');
+  if (!t) return;
+  t.className = 'toast' + (type ? ` ${type}` : '');
+  t.hidden = false;
+  t.innerHTML = `<span class="toast-msg">${message}</span>` + (actionsHtml || '');
+  // trigger animation
+  requestAnimationFrame(() => t.classList.add('show'));
+  if (ms > 0) {
+    setTimeout(() => {
+      t.classList.remove('show');
+      setTimeout(() => { t.hidden = true; t.className = 'toast'; t.innerHTML = ''; }, 200);
+    }, ms);
+  }
+}
+
+if (fileButton && fileInput) {
+  fileButton.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try {
+      const rows = await importFile(file);
+      let added = 0, updated = 0;
+      const changes = []; // record changes for undo
+      rows.forEach(r => {
+        // compare by normalized product name (case-insensitive, ignore accents/symbols)
+        const name = normalizeName(r.producto || '');
+        const idx = products.findIndex(p => normalizeName(p.producto || '') === name);
+        if (idx >= 0) {
+          // record before state
+          const before = deepClone(products[idx]);
+          // update stock
+          products[idx].stock = r.stock ?? products[idx].stock ?? 0;
+          // update expiry only if CSV provides it; otherwise keep existing
+          if (r.caducidad && r.caducidad.trim() !== '') products[idx].caducidad = r.caducidad;
+          // keep existing icon if present; otherwise use imported icon
+          if (!products[idx].icon && r.icon) products[idx].icon = r.icon;
+          products[idx].__highlight = 'updated';
+          changes.push({ kind: 'updated', index: idx, before: before });
+          updated++;
+        } else {
+          // new product: ensure default icon if missing
+          const newItem = Object.assign({}, r);
+          if (!newItem.icon) newItem.icon = 'icon-192.png';
+          newItem.__highlight = 'added';
+          products.push(newItem);
+          const newIndex = products.length - 1;
+          changes.push({ kind: 'added', index: newIndex, item: deepClone(newItem) });
+          added++;
+        }
+      });
+      // record import as a single history entry for undo
+      if (changes.length > 0) pushHistory({ type: 'import', changes: changes });
+      // keep global reference in sync
+      window.__products = products;
+      saveProducts(products);
+      // keep global reference in sync
+      window.__products = products;
+      renderAndBind();
+      showToast(`Importado: ${added} añadidos, ${updated} actualizados`, 3500, 'success');
+      // remove highlight flags after a delay so animation can run
+      setTimeout(() => {
+        [...products].forEach(p => { if (p.__highlight) delete p.__highlight; });
+        renderAndBind();
+      }, 2400);
+    } catch (err) {
+      console.error('Import error', err);
+      showToast('Error al importar archivo', 3500, 'error');
+    }
+    // clear input so same file can be re-selected
+    e.target.value = '';
+  });
+}
+
+// search/filter helper used by header and table-top search inputs
+function filterAndRender(query) {
+  const q = query ? normalizeName(query) : '';
+  const filtered = q ? products.filter(p => normalizeName(p.producto || '').includes(q)) : products;
+  const display = sortForDisplay(filtered);
+  renderTable(display);
+  bindRowEvents((index, dataset, btn) => {
+    const p = dataset[index];
+    currentEditIndex = products.findIndex(pr => pr === p);
+    fillForm(p);
+    openModal({ target: btn });
+  }, display);
+}
+
+// header search
+if (searchInput) {
+  searchInput.addEventListener('input', (e) => filterAndRender(e.target.value));
+}
+
+// table top search and controls
+const tableSearch = document.getElementById('tableSearchInput');
+const addProductBtn = document.getElementById('addProduct');
+const deleteSelectedBtn = document.getElementById('deleteSelected');
+if (tableSearch) tableSearch.addEventListener('input', (e) => filterAndRender(e.target.value));
+if (addProductBtn) {
+  addProductBtn.addEventListener('click', () => {
+    currentEditIndex = -1;
+    fillForm({});
+    openModal();
+  });
+}
+if (deleteSelectedBtn) {
+  deleteSelectedBtn.addEventListener('click', () => {
+    const idxs = getSelectedIndexes();
+    if (!idxs || idxs.length === 0) { showToast('No hay productos seleccionados', 2000, 'error'); return; }
+    if (!confirm(`Eliminar ${idxs.length} producto(s)?`)) return;
+    // backup deleted items for undo (store original index and cloned item)
+    const backup = idxs.map(i => ({ index: i, item: deepClone(products[i]) }));
+    // remove descending so indexes stay valid
+    idxs.sort((a,b) => b - a).forEach(i => products.splice(i, 1));
+    // record history entry
+    pushHistory({ type: 'delete', items: backup });
+    saveProducts(products);
+    window.__products = products;
+    renderAndBind();
+    // show toast with Undo button that triggers global undo
+    showToast(`${idxs.length} eliminado(s)`, 8000, 'success', ` <button id="toastUndoBtn" class="toast-btn">Deshacer</button>`);
+    const undoBtn = document.getElementById('toastUndoBtn');
+    if (undoBtn) {
+      undoBtn.addEventListener('click', () => { undoLast(); });
+    }
+  });
+}
+
+// Initial render
+renderAndBind();
+
+// --- Service Worker registration & push subscription helpers ---
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return console.info('No serviceWorker available');
+  try {
+    const reg = await navigator.serviceWorker.register('/service-worker.js');
+    console.info('ServiceWorker registered at', reg.scope);
+  } catch (err) {
+    console.error('ServiceWorker registration failed', err);
+  }
+}
+
+// Ask for notification permission and subscribe to Push (if VAPID key provided)
+async function enablePush() {
+  if (!('Notification' in window)) { showToast('Notificaciones no soportadas por este navegador', 3000, 'error'); return; }
+  const perm = await Notification.requestPermission();
+  if (perm !== 'granted') { showToast('Permiso de notificaciones denegado', 3000, 'error'); return; }
+  showToast('Permiso concedido. Registrando service worker...', 2000, 'success');
+  try { await registerServiceWorker(); } catch(e) { console.error(e); }
+  // Try to subscribe to Push if service worker registration exists
+  if (!('serviceWorker' in navigator) || !navigator.serviceWorker.controller) {
+    // navigator.serviceWorker.controller may be null until a reload — inform user
+    showToast('Service worker registrado. Recarga la página para completar la suscripción Push.', 5000, 'success');
+    return;
+  }
+  // If a VAPID public key is provided by the app, use it to subscribe (set window.__VAPID_PUBLIC_KEY)
+  const vapidKey = window.__VAPID_PUBLIC_KEY || null;
+  if (!vapidKey) {
+    console.info('VAPID public key not provided. Skipping push subscription. Provide window.__VAPID_PUBLIC_KEY for automated subscription.');
+    showToast('Service worker activo. Proporciona clave VAPID en el servidor para Push.', 5000, 'success');
+    return;
+  }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(vapidKey) });
+    console.info('Push subscription:', sub);
+    showToast('Suscripción Push creada. Enviar al servidor para notificaciones.', 4000, 'success');
+    // You should POST `sub` to your server to save it and use it to send push messages
+  } catch (err) {
+    console.error('Push subscription error', err);
+    showToast('Error creando suscripción Push', 3500, 'error');
+  }
+}
+
+// small helper to convert VAPID key
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+// wire enablePush button
+const enablePushBtn = document.getElementById('enablePushBtn');
+if (enablePushBtn) enablePushBtn.addEventListener('click', () => enablePush());
+
+// register SW proactively (non-blocking)
+registerServiceWorker();
+
+// --- Icon picker implementation ---
+function createIconPicker() {
+  let picker = document.getElementById('iconPicker');
+  if (picker) return picker;
+  picker = document.createElement('div');
+  picker.id = 'iconPicker';
+  picker.className = 'icon-picker';
+  picker.innerHTML = `
+    <div style="margin-bottom:8px;"><input id="iconPickerSearch" placeholder="Buscar icono..." style="width:100%;padding:6px;border:1px solid #ddd;border-radius:6px"></div>
+    <div class="grid"></div>
+    <div style="display:flex;gap:8px;align-items:center;justify-content:center;margin-top:8px;">
+      <button id="iconPrevBtn" class="btn btn-outline" type="button">←</button>
+      <span id="iconPageInfo" style="font-size:13px;color:#444;"></span>
+      <button id="iconNextBtn" class="btn btn-outline" type="button">→</button>
+    </div>`;
+  document.body.appendChild(picker);
+  // click on item
+  picker.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const item = e.target.closest('.item');
+    if (!item) return;
+    const name = item.dataset.name;
+    console.debug('[iconPicker] item click ->', name);
+    const input = document.getElementById('pfIcon');
+    const preview = document.getElementById('pfIconPreview');
+    if (input) input.value = name;
+    if (preview) preview.src = `./public/icons/${name}`;
+    // keep picker open briefly to let other handlers that check picker.contains work, then close
+    setTimeout(() => hideIconPicker(), 0);
+  });
+  return picker;
+}
+
+async function showIconPicker(triggerBtn) {
+  const picker = createIconPicker();
+  const grid = picker.querySelector('.grid');
+  // load icons list
+  try {
+    // cache-bust icons.json so newly added icons appear without stale cache
+    const res = await fetch('./public/icons/icons.json?_=' + Date.now(), { cache: 'no-cache' });
+    const list = await res.json();
+    // exclude defaults (icon-192/icon-512) from picker list
+    const filteredList = (list || []).filter(n => n !== 'icon-192.png' && n !== 'icon-512.png');
+    // store on picker element for pagination and search
+    picker._icons = filteredList;
+    picker._pageSize = 8; // 4 columns * 2 rows
+    picker._page = 0;
+
+    // ensure grid has auto height (no internal scroll needed for pagination)
+    grid.style.maxHeight = '';
+    grid.style.overflowY = '';
+
+    function renderPickerPage() {
+      const all = picker._icons || [];
+      const searchQ = (picker.querySelector('#iconPickerSearch').value || '').trim().toLowerCase();
+      const visible = searchQ ? all.filter(n => n.toLowerCase().includes(searchQ)) : all;
+      console.debug('[iconPicker] render page', { total: all.length, visible: visible.length, page: picker._page });
+      const total = visible.length;
+      const pageSize = picker._pageSize || 8;
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+      if (picker._page == null || picker._page < 0) picker._page = 0;
+      if (picker._page >= totalPages) picker._page = totalPages - 1;
+      const start = picker._page * pageSize;
+      const pageItems = visible.slice(start, start + pageSize);
+      grid.innerHTML = pageItems.map(n => `
+        <div class="item" data-name="${n}">
+          <img src="./public/icons/${n}" alt="${n}" loading="eager" onerror="this.src='./public/icons/icon-192.png'">
+          <div style="font-size:12px;margin-top:6px;">${n}</div>
+        </div>
+      `).join('');
+      const pageInfo = picker.querySelector('#iconPageInfo');
+      if (pageInfo) pageInfo.textContent = `${picker._page + 1} / ${totalPages}`;
+      const prevBtn = picker.querySelector('#iconPrevBtn');
+      const nextBtn = picker.querySelector('#iconNextBtn');
+      if (prevBtn) { prevBtn.disabled = picker._page === 0; prevBtn.style.display = ''; }
+      if (nextBtn) { nextBtn.disabled = (picker._page >= totalPages - 1); nextBtn.style.display = ''; }
+    }
+
+    // initial render
+    renderPickerPage();
+
+    // bind pagination buttons (use assignment to avoid stacking handlers when re-opening picker)
+    const prev = picker.querySelector('#iconPrevBtn');
+    const next = picker.querySelector('#iconNextBtn');
+    if (prev) prev.onclick = (ev) => { ev.stopPropagation(); picker._page = Math.max(0, (picker._page || 0) - 1); renderPickerPage(); };
+    if (next) next.onclick = (ev) => { ev.stopPropagation(); picker._page = (picker._page || 0) + 1; renderPickerPage(); };
+
+    // bind search in picker: use assignment to prevent duplicate handlers
+    const searchInput = picker.querySelector('#iconPickerSearch');
+    if (searchInput) {
+      searchInput.oninput = (ev) => {
+        picker._page = 0;
+        renderPickerPage();
+      };
+    }
+    
+  } catch (err) {
+    grid.innerHTML = '<div style="padding:8px">No se pudieron cargar iconos</div>';
+  }
+  // position near triggerBtn using viewport coordinates (getBoundingClientRect)
+  const rect = triggerBtn.getBoundingClientRect();
+  // for fixed positioning we should NOT add window.scrollX/Y (rect is already viewport-relative)
+  let left = rect.right + 8;
+  let top = rect.top;
+  picker.style.left = `${left}px`;
+  picker.style.top = `${top}px`;
+  // adjust if it would overflow viewport after render
+  setTimeout(() => {
+    const pw = picker.offsetWidth || 0;
+    const ph = picker.offsetHeight || 0;
+    let placedLeft = false;
+    if (left + pw > window.innerWidth) {
+      left = Math.max(8, rect.left - pw - 8);
+      placedLeft = true;
+      picker.style.left = `${left}px`;
+    }
+    if (top + ph > window.innerHeight) {
+      top = Math.max(8, window.innerHeight - ph - 8);
+      picker.style.top = `${top}px`;
+    }
+    // if placed left, we might want to flip arrow or styling (not used for picker)
+  }, 0);
+  picker.classList.add('visible');
+  // mark picker open so modal outside-click ignores clicks inside
+  try { window.__iconPickerOpen = true; } catch (e) {}
+  // close on outside click
+  setTimeout(() => {
+    document.addEventListener('click', outsideClick);
+  }, 0);
+}
+
+function hideIconPicker() {
+  const picker = document.getElementById('iconPicker');
+  if (!picker) return;
+  picker.classList.remove('visible');
+  document.removeEventListener('click', outsideClick);
+  try { window.__iconPickerOpen = false; } catch(e){}
+}
+
+function outsideClick(e) {
+  const picker = document.getElementById('iconPicker');
+  if (!picker) return;
+  const btn = document.getElementById('pfPickIcon');
+  if (picker.contains(e.target)) return;
+  if (btn && (btn === e.target || btn.contains(e.target))) return;
+  hideIconPicker();
+}
+
+// bind pick icon button using delegated handler so it still works
+// if the modal content is re-rendered or the element is recreated.
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest && e.target.closest('#pfPickIcon');
+  if (!btn) return;
+  e.stopPropagation();
+  try { showIconPicker(btn); } catch (err) { console.error('showIconPicker error', err); }
+});

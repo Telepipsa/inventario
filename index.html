@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Inventario</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="./src/styles/main.css" rel="stylesheet">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-icon">✅</div>
+      <h1>Inventario</h1>
+    </div>
+    <div class="actions">
+      <input id="fileInput" type="file" accept=".csv,.xlsx" style="display:none">
+      <button id="fileButton" class="btn">Importar CSV/XLSX</button>
+      <button id="undoBtn" class="btn btn-outline" title="Deshacer última acción">Deshacer</button>
+      <button id="enablePushBtn" class="btn btn-outline" title="Habilitar notificaciones">Notificaciones</button>
+      <div class="search">
+        <input id="searchInput" type="text" placeholder="Buscar producto...">
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <div class="table-controls">
+      <div class="controls-left">
+        <input id="tableSearchInput" type="text" placeholder="Buscar producto...">
+        <button id="addProduct" class="btn btn-outline">Añadir producto</button>
+        <button id="deleteSelected" class="btn btn-danger">Eliminar seleccionados</button>
+        <button id="historyBtn" class="btn btn-outline">Historial</button>
+      </div>
+    </div>
+    <table class="table" id="productTable"></table>
+  </main>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <!-- Modal de edición -->
+  <div id="modalBackdrop" class="modal-backdrop" hidden></div>
+  <div id="modal" class="modal" hidden>
+    <form id="productForm" class="modal-content">
+      <h2>Editar producto</h2>
+      <label>Nombre<br><input id="pfName" type="text" required></label> 
+      <label>Stock<br><input id="pfStock" type="number" min="0" value="0"></label>
+      <label>Caducidad<br><input id="pfExpiry" type="date"></label>
+      <label>Icono<br>
+        <div class="icon-input">
+          <input id="pfIcon" type="hidden">
+          <button type="button" id="pfPickIcon" class="btn btn-outline">Elegir icono</button>
+        </div>
+        <div class="icon-preview"><img id="pfIconPreview" src="./public/icons/icon-192.png" alt="icon" onerror="this.src='./public/icons/icon-192.png'"></div>
+      </label>
+      <div class="modal-actions">
+        <button type="submit" class="btn">Guardar</button>
+        <button type="button" id="pfDelete" class="btn btn-danger">Eliminar</button>
+        <button type="button" id="pfClose" class="btn btn-outline">Cerrar</button>
+      </div>
+    </form>
+  </div>
+
+  <script type="module" src="./public/app.js"></script>
+</body>
+</html>
