@@ -103,15 +103,38 @@ function syncSave(p) {
           const tryUrl = known.replace(/\/$/, '') + '/api/products';
           const r = await fetch(tryUrl, { cache: 'no-cache' });
           if (r.ok) {
-            window.__API_BASE = known.replace(/\/$/, '');
-            localStorage.setItem('API_BASE', window.__API_BASE);
-            console.info('[auto-fallback] API_BASE set to', window.__API_BASE);
-            const remote = await r.json();
-            if (Array.isArray(remote) && remote.length > 0) {
-              products = remote;
-              saveProducts(products);
-              return true;
-            }
+              window.__API_BASE = known.replace(/\/$/, '');
+              // Persist base and user API key so app can auto-sync on startup
+              localStorage.setItem('API_BASE', window.__API_BASE);
+              // User-provided API key (set per user's request)
+              const knownApiKey = '98150e30a8d0945c90fae1f68999a7a9';
+              window.__API_KEY = knownApiKey;
+              localStorage.setItem('API_KEY', knownApiKey);
+              console.info('[auto-fallback] API_BASE/API_KEY set to', window.__API_BASE);
+              const remote = await r.json();
+              if (Array.isArray(remote) && remote.length > 0) {
+                products = remote;
+                saveProducts(products);
+                return true;
+              }
+              // If remote is empty but we have local products, push them to the server
+              try {
+                const local = loadProducts();
+                if (Array.isArray(local) && local.length > 0) {
+                  await serverSaveProducts(local);
+                  console.info('[auto-fallback] pushed local products to server');
+                  // reload from server to confirm
+                  const confirmRemote = await fetch(window.__API_BASE + '/api/products');
+                  if (confirmRemote.ok) {
+                    const list = await confirmRemote.json();
+                    if (Array.isArray(list) && list.length > 0) {
+                      products = list;
+                      saveProducts(products);
+                      return true;
+                    }
+                  }
+                }
+              } catch (e) { console.warn('[auto-fallback] push local -> server failed', e); }
           }
         } catch (e) {
           console.info('[auto-fallback] known server not reachable', e && e.message);
