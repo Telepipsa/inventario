@@ -21,6 +21,9 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  min-height: 64px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .brand {
@@ -272,4 +275,27 @@ body {
   .modal.popover { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); }
   .modal.popover::before { display: none; }
   .icon-picker { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+}
+
+/* Responsive layout for small screens: stack table rows as cards */
+@media (max-width: 720px) {
+  .app-header { padding: 12px; align-items: flex-start; flex-wrap: wrap; }
+  .app-header .brand { width:100%; display:flex; align-items:center; gap:8px; }
+  .app-header .actions { width:100%; justify-content: flex-end; margin-top:8px; }
+  .container { margin: 10px; padding: 0 8px; }
+  .table { box-shadow: none; border-radius: 8px; }
+  .table thead { display: none; }
+  .table, .table tbody, .table tr, .table td { display: block; width: 100%; }
+  .table tr { margin-bottom: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--card); }
+  .table td { padding: 6px 0; border: none; }
+  .table td:first-child { display: none; } /* hide checkbox in compact view (handled by long-press/select later) */
+  .product-cell { display:flex; align-items:flex-start; gap:10px; }
+  .product-cell img { width:48px; height:48px; flex: 0 0 48px; }
+  .product-cell div { flex:1; min-width:0; }
+  .stock-controls { margin-top:6px; gap:10px; }
+  .stock-controls .stock-value { min-width:40px; }
+  .modal-content { min-width: auto; width: calc(100vw - 24px); box-sizing: border-box; }
+  .icon-picker { position: fixed; left: 50%; transform: translateX(-50%); bottom: 20px; top: auto; max-width: 96%; }
+  .icon-picker .grid { grid-template-columns: repeat(4, 1fr); gap:6px; }
+  .icon-picker .item img { width:48px; height:48px; }
 }

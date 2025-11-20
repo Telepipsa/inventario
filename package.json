@@ -1,0 +1,13 @@
+{
+  "name": "inventario",
+  "version": "1.0.0",
+  "description": "Inventario app with optional sync server",
+  "main": "./public/app.js",
+  "scripts": {
+    "start": "node scripts/server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2"
+  }
+}

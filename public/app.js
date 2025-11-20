@@ -25,13 +25,53 @@ const fileButton = document.getElementById('fileButton');
 const fileInput = document.getElementById('fileInput');
 const searchInput = document.getElementById('searchInput');
 
-let products = loadProducts();
-if (!products || !Array.isArray(products) || products.length === 0) {
-  products = [
-    { producto: 'Queso', stock: 20, caducidad: '2025-11-20', icon: 'icon-192.png' }
-  ];
-  saveProducts(products);
+let products = [];
+
+// Attempt to load from a central API if configured (set window.__API_BASE = 'http://host:port')
+async function serverLoadProducts() {
+  if (!window.__API_BASE) throw new Error('No API base');
+  const res = await fetch(window.__API_BASE.replace(/\/$/, '') + '/api/products');
+  if (!res.ok) throw new Error('Failed to fetch from server');
+  return await res.json();
 }
+
+async function serverSaveProducts(p) {
+  if (!window.__API_BASE) throw new Error('No API base');
+  const headers = { 'Content-Type': 'application/json' };
+  if (window.__API_KEY) headers['x-api-key'] = window.__API_KEY;
+  const res = await fetch(window.__API_BASE.replace(/\/$/, '') + '/api/products', { method: 'POST', headers, body: JSON.stringify(p) });
+  if (!res.ok) throw new Error('Failed to save to server');
+  return await res.json();
+}
+
+// wrapper to save locally and optionally push to server
+function syncSave(p) {
+  saveProducts(p);
+  if (window.__API_BASE) {
+    serverSaveProducts(p).then(() => console.info('[sync] saved to server')).catch(e => console.warn('[sync] server save failed', e));
+  }
+}
+
+(async function initProducts() {
+  if (window.__API_BASE) {
+    try {
+      const remote = await serverLoadProducts();
+      if (Array.isArray(remote) && remote.length > 0) {
+        products = remote;
+        saveProducts(products); // keep local cache
+      }
+    } catch (e) { console.info('Could not load products from API:', e); }
+  }
+  if (!products || !Array.isArray(products) || products.length === 0) {
+    products = loadProducts();
+    if (!products || !Array.isArray(products) || products.length === 0) {
+      products = [ { producto: 'Queso', stock: 20, caducidad: '2025-11-20', icon: 'icon-192.png' } ];
+      syncSave(products);
+    }
+  }
+  // expose globally
+  window.__products = products;
+})();
 
 // expose products globally for component utilities (used for mapping selections)
 window.__products = products;
@@ -241,7 +281,7 @@ function undoUntil(globalIdx) {
     const entry = historyStack.pop();
     applyUndo(entry);
   }
-  saveProducts(products);
+  syncSave(products);
   window.__products = products;
   renderAndBind();
   updateUndoButton();
@@ -282,7 +322,7 @@ function undoLast() {
   if (historyStack.length === 0) { showToast('Nada que deshacer', 1500); return; }
   const entry = historyStack.pop();
   applyUndo(entry);
-  saveProducts(products);
+  syncSave(products);
   window.__products = products;
   renderAndBind();
   updateUndoButton();
@@ -337,7 +377,7 @@ function renderAndBind() {
       products[gi].stock = next;
       const afterState = deepClone(products[gi]);
       pushHistory({ type: 'edit', index: gi, before: before, after: afterState, changes: computeChanges(before, afterState) });
-      saveProducts(products);
+      syncSave(products);
       window.__products = products;
       renderAndBind();
     });
@@ -359,7 +399,7 @@ bindFormActions({
       const idx = products.length - 1;
       pushHistory({ type: 'add', index: idx, item: deepClone(data) });
     }
-    saveProducts(products);
+    syncSave(products);
     window.__products = products;
     renderAndBind();
     closeModal();
@@ -370,7 +410,7 @@ bindFormActions({
     const removed = deepClone(products[currentEditIndex]);
     products.splice(currentEditIndex, 1);
     pushHistory({ type: 'delete', items: [{ index: currentEditIndex, item: removed }] });
-    saveProducts(products);
+    syncSave(products);
     window.__products = products;
     renderAndBind();
     closeModal();
@@ -441,7 +481,7 @@ if (fileButton && fileInput) {
       if (changes.length > 0) pushHistory({ type: 'import', changes: changes });
       // keep global reference in sync
       window.__products = products;
-      saveProducts(products);
+      syncSave(products);
       // keep global reference in sync
       window.__products = products;
       renderAndBind();
@@ -502,7 +542,7 @@ if (deleteSelectedBtn) {
     idxs.sort((a,b) => b - a).forEach(i => products.splice(i, 1));
     // record history entry
     pushHistory({ type: 'delete', items: backup });
-    saveProducts(products);
+    syncSave(products);
     window.__products = products;
     renderAndBind();
     // show toast with Undo button that triggers global undo
@@ -520,8 +560,11 @@ renderAndBind();
 // --- Service Worker registration & push subscription helpers ---
 async function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return console.info('No serviceWorker available');
+  // Register using a relative path so it works both on localhost and GitHub Pages (project sites)
+  const swPath = './service-worker.js';
   try {
-    const reg = await navigator.serviceWorker.register('/service-worker.js');
+    console.info('[SW] trying to register', swPath);
+    const reg = await navigator.serviceWorker.register(swPath);
     console.info('ServiceWorker registered at', reg.scope);
   } catch (err) {
     console.error('ServiceWorker registration failed', err);
@@ -573,6 +616,126 @@ function urlBase64ToUint8Array(base64String) {
 // wire enablePush button
 const enablePushBtn = document.getElementById('enablePushBtn');
 if (enablePushBtn) enablePushBtn.addEventListener('click', () => enablePush());
+
+// --- Server config UI ---
+// read saved server config from localStorage
+function loadServerConfig() {
+  const base = localStorage.getItem('API_BASE') || '';
+  const key = localStorage.getItem('API_KEY') || '';
+  if (base) window.__API_BASE = base;
+  if (key) window.__API_KEY = key;
+}
+
+function saveServerConfig(base, key) {
+  if (base) localStorage.setItem('API_BASE', base); else localStorage.removeItem('API_BASE');
+  if (key) localStorage.setItem('API_KEY', key); else localStorage.removeItem('API_KEY');
+  window.__API_BASE = base || null;
+  window.__API_KEY = key || null;
+  showToast('Configuración de servidor guardada', 2000, 'success');
+}
+
+const serverConfigBtn = document.getElementById('serverConfigBtn');
+if (serverConfigBtn) {
+  serverConfigBtn.addEventListener('click', () => {
+    const currentBase = localStorage.getItem('API_BASE') || '';
+    const currentKey = localStorage.getItem('API_KEY') || '';
+    const base = prompt('URL base del servidor (ej. http://mi-servidor:3000)', currentBase || '');
+    if (base === null) return; // cancel
+    const key = prompt('API Key (opcional, deja vacío si no tienes)', currentKey || '');
+    if (key === null) return;
+    saveServerConfig(base.trim(), key.trim());
+  });
+}
+
+// load config on startup
+loadServerConfig();
+
+// --- Server history panel ---
+function showServerHistoryPanel(triggerBtn) {
+  if (!window.__API_BASE) { showToast('Configura el servidor primero', 2500, 'error'); return; }
+  const panelId = 'serverHistoryPanel';
+  let panel = document.getElementById(panelId);
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = panelId;
+    panel.className = 'history-panel';
+    document.body.appendChild(panel);
+  }
+  panel.innerHTML = `<h3>Historial servidor (últimas 10)</h3><div class="history-loading">Cargando...</div>`;
+  // fetch history
+  fetch(window.__API_BASE.replace(/\/$/, '') + '/api/history/last?n=10')
+    .then(r => r.json())
+    .then(list => {
+      if (!Array.isArray(list) || list.length === 0) {
+        panel.innerHTML = `<h3>Historial servidor (0)</h3><div class="history-empty">No hay entradas</div>`;
+        return;
+      }
+      panel.innerHTML = `<h3>Historial servidor (${list.length})</h3>` + list.map((e, idx) => {
+        return `<div class="history-entry" data-idx="${idx}">
+          <div>
+            <div class="desc">${new Date(e.ts).toLocaleString()} — ${e.type}</div>
+            <div class="meta">Antes: ${e.beforeCount} · Después: ${e.afterCount}</div>
+          </div>
+          <div>
+            <button class="entry-btn view-btn" data-idx="${idx}">Ver</button>
+            <button class="entry-btn restore-btn" data-idx="${idx}">Restaurar</button>
+          </div>
+        </div>`;
+      }).join('');
+      // attach handlers
+      panel.querySelectorAll('.view-btn').forEach(b => b.addEventListener('click', (ev) => {
+        const i = +ev.currentTarget.dataset.idx;
+        const entry = list[i];
+        // open a simple window with JSON preview
+        const w = window.open('', '_blank', 'width=800,height=600');
+        w.document.write('<pre>' + JSON.stringify(entry, null, 2) + '</pre>');
+      }));
+      panel.querySelectorAll('.restore-btn').forEach(b => b.addEventListener('click', async (ev) => {
+        const i = +ev.currentTarget.dataset.idx;
+        const entry = list[i];
+        if (!confirm('Restaurar snapshot anterior en el servidor? Esto reemplazará la lista actual.')) return;
+        try {
+          const headers = { 'Content-Type': 'application/json' };
+          if (window.__API_KEY) headers['x-api-key'] = window.__API_KEY;
+          const res = await fetch(window.__API_BASE.replace(/\/$/, '') + '/api/products', { method: 'POST', headers, body: JSON.stringify(entry.before || []) });
+          if (!res.ok) throw new Error('restore failed');
+          // reload products from server
+          const remote = await serverLoadProducts();
+          products = remote;
+          syncSave(products);
+          window.__products = products;
+          renderAndBind();
+          showToast('Restaurado correctamente', 2500, 'success');
+        } catch (err) {
+          console.error(err);
+          showToast('Error restaurando snapshot (comprueba API key)', 3500, 'error');
+        }
+      }));
+    }).catch(err => {
+      console.error('history fetch err', err);
+      panel.innerHTML = `<h3>Historial servidor</h3><div class="history-empty">Error cargando historial</div>`;
+    });
+
+  // position near trigger if provided
+  if (triggerBtn && triggerBtn.getBoundingClientRect) {
+    const r = triggerBtn.getBoundingClientRect();
+    panel.style.position = 'absolute';
+    panel.style.left = `${Math.max(8, r.left + window.scrollX)}px`;
+    panel.style.top = `${r.bottom + window.scrollY + 8}px`;
+  }
+  setTimeout(() => { document.addEventListener('click', serverHistoryOutsideClick); }, 0);
+}
+
+function hideServerHistoryPanel() {
+  const p = document.getElementById('serverHistoryPanel'); if (!p) return; p.remove(); document.removeEventListener('click', serverHistoryOutsideClick);
+}
+
+function serverHistoryOutsideClick(e) {
+  const panel = document.getElementById('serverHistoryPanel'); if (!panel) return; if (panel.contains(e.target)) return; const hb = document.getElementById('serverHistoryBtn'); if (hb && (hb === e.target || hb.contains(e.target))) return; hideServerHistoryPanel();
+}
+
+const serverHistoryBtn = document.getElementById('serverHistoryBtn');
+if (serverHistoryBtn) serverHistoryBtn.addEventListener('click', (e) => { e.stopPropagation(); showServerHistoryPanel(serverHistoryBtn); });
 
 // register SW proactively (non-blocking)
 registerServiceWorker();
