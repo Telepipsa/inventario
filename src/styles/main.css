@@ -305,6 +305,26 @@ body {
   .table-controls .controls-left, .table-controls .controls-right { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 }
 
+/* Keep clear cache button visible and fixed on small screens so user can always access it */
+@media (max-width: 720px) {
+  #clearCacheBtn {
+    position: fixed !important;
+    top: 8px !important;
+    right: 8px !important;
+    z-index: 2200 !important;
+    padding: 6px 8px !important;
+    font-size: 11px !important;
+  }
+  #forceSyncBtn {
+    position: fixed !important;
+    top: 8px !important;
+    right: 110px !important;
+    z-index: 2200 !important;
+    padding: 6px 8px !important;
+    font-size: 11px !important;
+  }
+}
+
 /* Extra small screens (iPhone portrait ~390px) tweaks */
 @media (max-width: 400px) {
   :root { --primary: #7c4dff; }

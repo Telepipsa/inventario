@@ -38,6 +38,7 @@ const fileButton = document.getElementById('fileButton');
 const fileInput = document.getElementById('fileInput');
 const searchInput = document.getElementById('searchInput');
 const clearCacheBtn = document.getElementById('clearCacheBtn');
+const forceSyncBtn = document.getElementById('forceSyncBtn');
 
 let products = [];
 
@@ -54,7 +55,9 @@ async function serverSaveProducts(p) {
   const base = getApiBaseOrigin(window.__API_BASE);
   if (!base) throw new Error('No API base');
   const headers = { 'Content-Type': 'application/json' };
-  if (window.__API_KEY) headers['x-api-key'] = window.__API_KEY;
+  // prefer in-memory API key, fallback to localStorage (in case user cleared state)
+  const apiKey = window.__API_KEY || (localStorage && localStorage.getItem && localStorage.getItem('API_KEY'));
+  if (apiKey) headers['x-api-key'] = apiKey;
   const res = await fetch(base + '/api/products', { method: 'POST', headers, body: JSON.stringify(p) });
   if (!res.ok) {
     const txt = await res.text().catch(() => '');
@@ -111,6 +114,19 @@ async function clearAppCacheAndReload() {
 }
 
 if (clearCacheBtn) clearCacheBtn.addEventListener('click', clearAppCacheAndReload);
+if (forceSyncBtn) forceSyncBtn.addEventListener('click', async () => {
+  if (!confirm('¿Forzar sincronización con el servidor ahora? Esto intentará subir los productos locales.')) return;
+  showToast('Forzando sincronización...', 2000, '');
+  try {
+    const local = loadProducts();
+    await serverSaveProducts(local);
+    showToast('Sincronización forzada completada', 2500, 'success');
+  } catch (err) {
+    console.error('forceSync failed', err);
+    if (err && err.status === 401) showToast('Forzar sync falló: 401 No autorizado — revisa API Key', 5000, 'error');
+    else showToast('Forzar sync falló (revisa consola)', 4000, 'error');
+  }
+});
 
 (async function initProducts() {
   // load server config from localStorage if present (and attempt auto-detect)
