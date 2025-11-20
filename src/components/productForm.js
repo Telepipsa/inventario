@@ -1,6 +1,7 @@
 // /src/components/productForm.js
 export function fillForm(p) {
-  document.getElementById('pfCodigo').value = p.codigo || '';
+  // prefer explicit codigo but fall back to other common keys
+  document.getElementById('pfCodigo').value = (p.codigo || p.code || p.Codigo || p.CODIGO || p.Code || p.codigoProducto) || '';
   document.getElementById('pfName').value = p.producto || '';
   document.getElementById('pfStock').value = p.stock ?? 0;
   // normalize expiry to YYYY-MM-DD so <input type="date"> can display it

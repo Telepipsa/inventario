@@ -33,7 +33,7 @@ export function renderTable(products) {
       ${products.map((p, i) => `
         <tr data-index="${i}" data-global-index="${window.__products && Array.isArray(window.__products) ? window.__products.findIndex(q => q === p) : i}" class="${p.__highlight ? 'row-'+p.__highlight : ''}">
           <td><input type="checkbox" class="row-check" data-index="${i}" data-global-index="${window.__products && Array.isArray(window.__products) ? window.__products.findIndex(q => q === p) : i}"></td>
-          <td style="font-family:monospace;">${p.codigo || ''}</td>
+          <td style="font-family:monospace;">${(p.codigo || p.code || p.Codigo || p.CODIGO || p.codigoProducto || p.Code) || ''}</td>
           <td class="product-cell">
             <img src="./public/icons/${p.icon || 'icon-192.png'}" alt="${p.producto}" onerror="this.src='./public/icons/icon-192.png'">
             <div>
