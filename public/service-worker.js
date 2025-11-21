@@ -1,5 +1,6 @@
 // /public/service-worker.js
-const CACHE = 'inventario-v2';
+// Bump cache name when changing assets so clients fetch latest files
+const CACHE = 'inventario-app-v3';
 // Use absolute paths so cached assets match requests regardless of SW location
 const ASSETS = [
   '/index.html',
@@ -11,18 +12,27 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
+  e.waitUntil(
+    caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(err => {
+      console.error('SW install cache error', err);
+    }).then(() => {
+      // Force the waiting service worker to become the active one
+      try { self.skipWaiting(); } catch (err) { /* ignore */ }
+    })
+  );
 });
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(
-    caches.keys().then(keys => Promise.all(keys.map(k => k !== CACHE && caches.delete(k))))
+    caches.keys().then(keys => Promise.all(keys.map(k => (k !== CACHE) ? caches.delete(k) : Promise.resolve()))).then(() => {
+      try { self.clients.claim(); } catch (err) { /* ignore */ }
+    })
   );
 });
 
 self.addEventListener('fetch', (e) => {
   e.respondWith(
-    caches.match(e.request).then(r => r || fetch(e.request))
+    caches.match(e.request).then(r => r || fetch(e.request)).catch(() => fetch(e.request))
   );
 });
 
@@ -32,7 +42,8 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification('Inventario', {
       body: data,
-      icon: 'icons/icon-192.png'
+      icon: '/public/icons/icon-192.png',
+      badge: '/public/icons/icon-192.png'
     })
   );
 });
