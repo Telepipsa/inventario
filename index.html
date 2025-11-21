@@ -5,7 +5,7 @@
   <title>Inventario</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-  <link href="./src/styles/main.css" rel="stylesheet">
+  <link href="./src/styles/main.css?v=065499a" rel="stylesheet">
 </head>
 <body>
   <header class="app-header">
@@ -53,24 +53,45 @@
   <div id="modal" class="modal" hidden>
     <form id="productForm" class="modal-content">
       <h2>Editar producto</h2>
-      <label>Código<br><input id="pfCodigo" type="text"></label>
-      <label>Nombre<br><input id="pfName" type="text" required></label> 
-      <label>Stock<br><input id="pfStock" type="number" min="0" value="0"></label>
-      <label>Caducidad<br><input id="pfExpiry" type="date"></label>
-      <label>Icono<br>
-        <div class="icon-input">
-          <input id="pfIcon" type="hidden">
-          <button type="button" id="pfPickIcon" class="btn btn-outline">Elegir icono</button>
+      <div class="modal-grid">
+        <div class="modal-field">
+          <label for="pfCodigo">Código</label>
+          <input id="pfCodigo" type="text">
         </div>
-        <div class="icon-preview"><img id="pfIconPreview" src="./public/icons/icon-192.png" alt="icon" onerror="this.src='./public/icons/icon-192.png'"></div>
-      </label>
-      <label>Tipo<br>
-        <div class="tag-inputs">
-          <label class="tag-filter"><input type="checkbox" id="pfTagSeco"> Seco</label>
-          <label class="tag-filter"><input type="checkbox" id="pfTagCongelado"> Congelado</label>
-          <label class="tag-filter"><input type="checkbox" id="pfTagFresco"> Fresco</label>
+        <div class="modal-field">
+          <label for="pfName">Nombre</label>
+          <input id="pfName" type="text" required>
         </div>
-      </label>
+
+        <div class="modal-field">
+          <label for="pfStock">Stock</label>
+          <input id="pfStock" type="number" min="0" value="0">
+        </div>
+        <div class="modal-field">
+          <label for="pfExpiry">Caducidad</label>
+          <input id="pfExpiry" type="date">
+        </div>
+
+        <div class="modal-field icon-row" style="grid-column: 1 / span 2; display:flex; align-items:center; gap:10px;">
+          <div style="flex:1;">
+            <label>Icono</label>
+            <div class="icon-input">
+              <input id="pfIcon" type="hidden">
+              <button type="button" id="pfPickIcon" class="btn btn-outline">Elegir icono</button>
+            </div>
+          </div>
+          <div class="icon-preview"><img id="pfIconPreview" src="./public/icons/icon-192.png" alt="icon" onerror="this.src='./public/icons/icon-192.png'"></div>
+        </div>
+
+        <div class="modal-field" style="grid-column: 1 / span 2;">
+          <label>Tipo</label>
+          <div class="tag-inputs" style="display:flex;gap:12px;align-items:center;">
+            <label class="tag-filter"><input type="checkbox" id="pfTagSeco"> Seco</label>
+            <label class="tag-filter"><input type="checkbox" id="pfTagCongelado"> Congelado</label>
+            <label class="tag-filter"><input type="checkbox" id="pfTagFresco"> Fresco</label>
+          </div>
+        </div>
+      </div>
       <div class="modal-actions">
         <button type="submit" class="btn">Guardar</button>
         <button type="button" id="pfDelete" class="btn btn-danger">Eliminar</button>
