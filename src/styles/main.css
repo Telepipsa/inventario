@@ -65,7 +65,7 @@ body {
   padding: 0 12px;
 }
 
-.table-controls { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+.table-controls { display:flex; justify-content:center; align-items:center; margin-bottom:10px; gap:12px; }
 .table-controls .controls-left { display:flex; gap:8px; align-items:center; }
 .table-controls input[type="text"] { padding:8px 10px; border-radius:6px; border:1px solid var(--border); }
 
@@ -201,6 +201,19 @@ body {
   min-width: 300px;
 }
 
+/* Modal grid layout for desktop: two columns to avoid very tall popover */
+.modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+.modal-field label { display:block; margin-bottom:6px; font-size:14px; color:#333; }
+.modal-field input[type="text"], .modal-field input[type="number"], .modal-field input[type="date"] { width:100%; padding:8px 10px; border-radius:6px; border:1px solid var(--border); box-sizing:border-box; }
+.icon-row .icon-input { display:inline-flex; align-items:center; gap:8px; }
+.icon-preview img { width:48px; height:48px; object-fit:cover; border-radius:6px; border:1px solid var(--border); }
+
+/* Make checkboxes look cleaner using accent-color and sizing */
+.tag-filter input[type="checkbox"], .tag-filters input[type="checkbox"], .tag-inputs input[type="checkbox"] {
+  width:18px; height:18px; accent-color:var(--primary); margin-right:6px; vertical-align:middle;
+}
+.tag-filter { display:inline-flex; align-items:center; gap:6px; font-size:14px; color:#333; }
+
 /* Form layout inside modal */
 .modal-content label {
   display: block;
@@ -282,6 +295,22 @@ body {
   .icon-picker { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); }
 }
 
+/* For medium screens (<1000px) keep layout single column and reduce font-sizes as requested */
+@media (max-width: 1000px) {
+  .modal-grid { grid-template-columns: 1fr; }
+  .modal-content { font-size: 13px; }
+  .modal-field label { font-size: 13px; }
+  .modal-field input[type="text"], .modal-field input[type="number"], .modal-field input[type="date"] { font-size: 13px; padding:7px 8px; }
+  .icon-preview img { width:36px; height:36px; }
+  .tag-filter { font-size:12px; }
+  .tag-filter input[type="checkbox"] { width:12px; height:12px; }
+}
+
+/* Slightly larger spacing on wide desktop for popover */
+@media (min-width: 1001px) {
+  .modal-content { min-width: 420px; }
+}
+
 /* Responsive: compact table for small/medium screens — keep table layout but shrink sizes and allow horizontal scroll */
 @media (max-width: 720px) {
   .app-header { padding: 10px 12px; align-items: center; }
@@ -310,6 +339,37 @@ body {
   .table-controls .controls-left, .table-controls .controls-right { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 
   .tag-filters { width:100%; justify-content:flex-start; margin-top:6px; }
+}
+
+/* Mobile-specific: smaller checkboxes and tag label text */
+@media (max-width: 720px) {
+  .tag-filter input[type="checkbox"] { width:12px; height:12px; }
+  .tag-filter { font-size:12px; }
+}
+
+/* Desktop: make edit popover wider so it distributes horizontally rather than very tall */
+@media (min-width: 721px) {
+  .modal.popover .modal-content { min-width: 480px; max-width: 70vw; }
+}
+
+/* Modal adjustments for mobile: reduce font sizes and icon sizes inside the edit modal */
+@media (max-width: 520px) {
+  .modal-content label { font-size: 13px; }
+  .modal-content label input[type="text"],
+  .modal-content label input[type="number"],
+  .modal-content label input[type="date"] { font-size:13px; padding:6px 8px; }
+  .modal-actions .btn { padding:8px 10px; font-size:13px; }
+  .icon-preview img { width:36px; height:36px; }
+  .icon-picker .item img { width:36px; height:36px; }
+}
+
+@media (max-width: 400px) {
+  .modal-content label { font-size: 12px; }
+  .modal-content label input[type="text"],
+  .modal-content label input[type="number"],
+  .modal-content label input[type="date"] { font-size:12px; padding:5px 6px; }
+  .icon-preview img { width:32px; height:32px; }
+  .modal-actions .btn { padding:6px 8px; font-size:12px; }
 }
 
 /* Keep clear cache button visible and fixed on small screens so user can always access it */
