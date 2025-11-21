@@ -9,3 +9,9 @@ package-lock.json
 .vscode/
 /.cache
 public/icons/icons.json
+
+# Ignore runtime data files and local cleanup scripts
+/data/history.json
+/data/products_server.json
+/data/*.bak
+scripts/clean_history.*
