@@ -544,8 +544,8 @@ function renderAndBind() {
     // map to original products array by reference equality
     currentEditIndex = products.findIndex(pr => pr === p);
     fillForm(p);
-    // open as popover next to button when available
-    openModal({ target: btn });
+    // On wide screens prefer a centered wider modal (better UX); on small screens show popover near the button
+    if (window.innerWidth >= 1000) openModal(); else openModal({ target: btn });
   }, display);
 
   // Bind stock change events dispatched from table rows
@@ -746,7 +746,7 @@ function filterAndRender(query) {
     const p = dataset[index];
     currentEditIndex = products.findIndex(pr => pr === p);
     fillForm(p);
-    openModal({ target: btn });
+    if (window.innerWidth >= 1000) openModal(); else openModal({ target: btn });
   }, display);
 }
 
