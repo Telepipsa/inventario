@@ -38,6 +38,8 @@ const fileButton = document.getElementById('fileButton');
 const fileInput = document.getElementById('fileInput');
 const searchInput = document.getElementById('searchInput');
 const clearCacheBtn = document.getElementById('clearCacheBtn');
+// Default API key for your personal server (used automatically when missing)
+const DEFAULT_API_KEY = '98150e30a8d0945c90fae1f68999a7a9';
 const forceSyncBtn = document.getElementById('forceSyncBtn');
 
 let products = [];
@@ -76,7 +78,25 @@ function syncSave(p) {
       console.warn('[sync] server save failed', e);
       // show user-visible toast for failures; special message when unauthorized
       if (e && e.status === 401) {
-        showToast('Sincronización falló: 401 No autorizado — comprueba la API Key en configuración', 6000, 'error');
+        // Automatically set a default API key for your personal use, persist it, and retry once
+        showToast('Sincronización falló: 401 No autorizado — reintentando con API Key conocida', 3500, 'error');
+        try {
+          const existing = window.__API_KEY || (localStorage && localStorage.getItem && localStorage.getItem('API_KEY'));
+          const k = existing || DEFAULT_API_KEY;
+          if (k) {
+            try { localStorage.setItem('API_KEY', k); } catch(e2) { console.warn('Could not write API_KEY to localStorage', e2); }
+            window.__API_KEY = k;
+            // retry once
+            serverSaveProducts(p).then(() => {
+              console.info('[sync] saved to server after auto-setting API key');
+              showToast('Sincronización reintentada: OK', 2500, 'success');
+            }).catch(err2 => {
+              console.warn('[sync] retry after auto API key failed', err2);
+              if (err2 && err2.status === 401) showToast('Reintento falló: 401 No autorizado (API key inválida)', 5000, 'error');
+              else showToast('Reintento falló (revisa la consola)', 5000, 'error');
+            });
+          }
+        } catch (setErr) { console.warn('Auto-set API key failed', setErr); }
       } else {
         showToast('Sincronización falló: no se pudieron guardar los productos en el servidor', 5000, 'error');
       }
