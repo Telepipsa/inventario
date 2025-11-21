@@ -12,6 +12,13 @@ export function fillForm(p) {
   document.getElementById('pfIcon').value = iconValue;
   const preview = document.getElementById('pfIconPreview');
   if (preview) preview.src = `./public/icons/${iconValue}`;
+  // tags: expect array of strings like ['seco','fresco']
+  try {
+    const tags = Array.isArray(p.tags) ? p.tags.map(t => (t||'').toString().toLowerCase()) : [];
+    document.getElementById('pfTagSeco').checked = tags.includes('seco');
+    document.getElementById('pfTagCongelado').checked = tags.includes('congelado');
+    document.getElementById('pfTagFresco').checked = tags.includes('fresco');
+  } catch (e) { /* ignore */ }
 }
 export function readForm() {
   const codigo = document.getElementById('pfCodigo').value.trim();
@@ -19,12 +26,18 @@ export function readForm() {
   const stock = +document.getElementById('pfStock').value;
   let expiry = document.getElementById('pfExpiry').value.trim();
   const icon = document.getElementById('pfIcon').value.trim() || 'icon-192.png';
+  const tags = [];
+  try {
+    if (document.getElementById('pfTagSeco') && document.getElementById('pfTagSeco').checked) tags.push('seco');
+    if (document.getElementById('pfTagCongelado') && document.getElementById('pfTagCongelado').checked) tags.push('congelado');
+    if (document.getElementById('pfTagFresco') && document.getElementById('pfTagFresco').checked) tags.push('fresco');
+  } catch(e) {}
   if (!name) { alert('Nombre es obligatorio'); return null; }
   if (!Number.isFinite(stock) || stock < 0) { alert('Stock debe ser un número ≥ 0'); return null; }
   // expiry is optional; if provided, must be YYYY-MM-DD
   if (expiry === '') expiry = '';
   else if (!/^\d{4}-\d{2}-\d{2}$/.test(expiry)) { alert('Fecha en formato YYYY-MM-DD'); return null; }
-  return { codigo: codigo || '', producto: name, stock, caducidad: expiry, icon };
+  return { codigo: codigo || '', producto: name, stock, caducidad: expiry, icon, tags };
 }
 
 // helpers

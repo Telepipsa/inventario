@@ -37,6 +37,11 @@
         <button id="deleteSelected" class="btn btn-danger">Eliminar seleccionados</button>
         <button id="historyBtn" class="btn btn-outline">Historial</button>
       </div>
+      <div class="tag-filters" aria-label="Filtrar por tipo">
+        <label class="tag-filter"><input type="checkbox" id="tagFilterSeco" checked> Seco</label>
+        <label class="tag-filter"><input type="checkbox" id="tagFilterCongelado" checked> Congelado</label>
+        <label class="tag-filter"><input type="checkbox" id="tagFilterFresco" checked> Fresco</label>
+      </div>
     </div>
     <table class="table" id="productTable"></table>
   </main>
@@ -58,6 +63,13 @@
           <button type="button" id="pfPickIcon" class="btn btn-outline">Elegir icono</button>
         </div>
         <div class="icon-preview"><img id="pfIconPreview" src="./public/icons/icon-192.png" alt="icon" onerror="this.src='./public/icons/icon-192.png'"></div>
+      </label>
+      <label>Tipo<br>
+        <div class="tag-inputs">
+          <label class="tag-filter"><input type="checkbox" id="pfTagSeco"> Seco</label>
+          <label class="tag-filter"><input type="checkbox" id="pfTagCongelado"> Congelado</label>
+          <label class="tag-filter"><input type="checkbox" id="pfTagFresco"> Fresco</label>
+        </div>
       </label>
       <div class="modal-actions">
         <button type="submit" class="btn">Guardar</button>

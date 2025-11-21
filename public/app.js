@@ -38,6 +38,10 @@ const fileButton = document.getElementById('fileButton');
 const fileInput = document.getElementById('fileInput');
 const searchInput = document.getElementById('searchInput');
 const clearCacheBtn = document.getElementById('clearCacheBtn');
+// Tag filter controls (above table)
+const tagFilterSeco = document.getElementById('tagFilterSeco');
+const tagFilterCongelado = document.getElementById('tagFilterCongelado');
+const tagFilterFresco = document.getElementById('tagFilterFresco');
 // Default API key for your personal server (used automatically when missing)
 const DEFAULT_API_KEY = '98150e30a8d0945c90fae1f68999a7a9';
 const forceSyncBtn = document.getElementById('forceSyncBtn');
@@ -716,7 +720,26 @@ if (fileButton && fileInput) {
 // search/filter helper used by header and table-top search inputs
 function filterAndRender(query) {
   const q = query ? normalizeName(query) : '';
-  const filtered = q ? products.filter(p => normalizeName(p.producto || '').includes(q)) : products;
+  const filteredByName = q ? products.filter(p => normalizeName(p.producto || '').includes(q)) : products;
+  // determine active tag filters (defaults: if checkbox missing, treat as checked)
+  const active = {
+    seco: tagFilterSeco ? !!tagFilterSeco.checked : true,
+    congelado: tagFilterCongelado ? !!tagFilterCongelado.checked : true,
+    fresco: tagFilterFresco ? !!tagFilterFresco.checked : true
+  };
+  function matchesTag(p) {
+    try {
+      const t = p && p.tags && Array.isArray(p.tags) ? p.tags.map(x => (x||'').toString().toLowerCase()) : [];
+      if (!t || t.length === 0) return true; // untagged -> always show
+      // show if any of the product's tags correspond to an active filter
+      if (active.seco && t.includes('seco')) return true;
+      if (active.congelado && t.includes('congelado')) return true;
+      if (active.fresco && t.includes('fresco')) return true;
+      return false;
+    } catch (e) { return true; }
+  }
+
+  const filtered = filteredByName.filter(matchesTag);
   const display = sortForDisplay(filtered);
   renderTable(display);
   bindRowEvents((index, dataset, btn) => {
@@ -737,6 +760,10 @@ const tableSearch = document.getElementById('tableSearchInput');
 const addProductBtn = document.getElementById('addProduct');
 const deleteSelectedBtn = document.getElementById('deleteSelected');
 if (tableSearch) tableSearch.addEventListener('input', (e) => filterAndRender(e.target.value));
+// wire tag filter checkboxes to update the table when changed
+if (tagFilterSeco) tagFilterSeco.addEventListener('change', () => filterAndRender(tableSearch ? tableSearch.value : (searchInput ? searchInput.value : '')));
+if (tagFilterCongelado) tagFilterCongelado.addEventListener('change', () => filterAndRender(tableSearch ? tableSearch.value : (searchInput ? searchInput.value : '')));
+if (tagFilterFresco) tagFilterFresco.addEventListener('change', () => filterAndRender(tableSearch ? tableSearch.value : (searchInput ? searchInput.value : '')));
 if (addProductBtn) {
   addProductBtn.addEventListener('click', () => {
     currentEditIndex = -1;

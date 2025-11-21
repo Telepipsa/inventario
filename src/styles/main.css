@@ -69,6 +69,11 @@ body {
 .table-controls .controls-left { display:flex; gap:8px; align-items:center; }
 .table-controls input[type="text"] { padding:8px 10px; border-radius:6px; border:1px solid var(--border); }
 
+/* Tag filters (seco/congelado/fresco) placed near table controls */
+.tag-filters { display:flex; gap:10px; align-items:center; margin-left:12px; }
+.tag-filter { display:flex; gap:6px; align-items:center; font-size:14px; color:#444; }
+.tag-filter input[type="checkbox"] { width:16px; height:16px; }
+
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -303,6 +308,8 @@ body {
   /* Ensure table controls (buttons + search) can wrap into two lines without overflowing */
   .table-controls { display:flex; flex-wrap:wrap; gap:8px; justify-content:space-between; }
   .table-controls .controls-left, .table-controls .controls-right { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+
+  .tag-filters { width:100%; justify-content:flex-start; margin-top:6px; }
 }
 
 /* Keep clear cache button visible and fixed on small screens so user can always access it */
