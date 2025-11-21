@@ -883,12 +883,16 @@ const serverConfigBtn = document.getElementById('serverConfigBtn');
 if (serverConfigBtn) {
   serverConfigBtn.addEventListener('click', () => {
     const currentBase = localStorage.getItem('API_BASE') || '';
-    const currentKey = localStorage.getItem('API_KEY') || '';
     const base = prompt('URL base del servidor (ej. http://mi-servidor:3000)', currentBase || '');
     if (base === null) return; // cancel
-    const key = prompt('API Key (opcional, deja vacío si no tienes)', currentKey || '');
-    if (key === null) return;
-    saveServerConfig(base.trim(), key.trim());
+    // Auto-apply API key: prefer existing stored key, otherwise use DEFAULT_API_KEY for your personal server
+    const existingKey = (localStorage && localStorage.getItem && localStorage.getItem('API_KEY')) || window.__API_KEY || '';
+    const autoKey = existingKey || DEFAULT_API_KEY || '';
+    try { if (autoKey) localStorage.setItem('API_KEY', autoKey); } catch (e) { console.warn('Could not write API_KEY to localStorage', e); }
+    window.__API_KEY = autoKey || null;
+    if (autoKey) showToast('API Key aplicada automáticamente', 2200, '');
+    else showToast('No se encontró API Key; puedes añadirla manualmente si es necesario', 3000, 'error');
+    saveServerConfig(base.trim(), autoKey);
   });
 }
 
