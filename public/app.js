@@ -760,7 +760,7 @@ function renderAndBind() {
 
 // Bind form actions
 bindFormActions({
-  onSave: () => {
+  onSave: async () => {
     const data = readForm();
     if (!data) return;
     if (currentEditIndex >= 0 && currentEditIndex < products.length) {
@@ -773,9 +773,28 @@ bindFormActions({
       const idx = products.length - 1;
       pushHistory({ type: 'add', index: idx, item: deepClone(data) });
     }
-    syncSave(products);
+    // Save locally and broadcast immediately
+    saveProducts(products);
+    try { if (bc) bc.postMessage({ type: 'products-updated', products: products }); } catch(e){}
     window.__products = products;
     renderAndBind();
+
+    // Try single-item server save via Supabase wrapper (more efficient)
+    if (window.__USE_SUPABASE && window.__SUPABASE && typeof window.__SUPABASE.saveSingle === 'function') {
+      try {
+        showToast('Guardando cambios en servidor...', 1500, '');
+        await window.__SUPABASE.saveSingle(data);
+        showToast('Guardado en servidor', 1400, 'success');
+      } catch (e) {
+        console.warn('saveSingle failed, falling back to full sync', e);
+        showToast('No se pudo guardar individualmente — sincronizando todo...', 2200, 'error');
+        try { await serverSaveProducts(products); showToast('Sincronización completada', 1400, 'success'); } catch (err) { console.error('full sync failed', err); showToast('Error sincronizando al servidor', 3000, 'error'); }
+      }
+    } else {
+      // fallback to full sync behavior
+      syncSave(products);
+    }
+
     closeModal();
   },
   onDelete: () => {

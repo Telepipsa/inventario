@@ -144,3 +144,45 @@ try {
 }
 
 export { listProducts, saveProducts };
+// Save or upsert a single product object. Uses detected schema (codigo/producto/stock)
+async function saveSingle(product) {
+  if (!product || typeof product !== 'object') return null;
+  const base = SUPABASE_URL.replace(/\/$/, '') + '/rest/v1/products';
+  const schema = window.__SUPABASE_SCHEMA || detectSchemaFromSample(product);
+  const src = Object.assign({}, product);
+  const out = {};
+  // map fields using schema
+  if (src.id !== undefined) out[schema.id || 'id'] = src.id;
+  if (src.name !== undefined) out[schema.name || 'name'] = src.name;
+  if (src.producto !== undefined && !out[schema.name || 'name']) out[schema.name || 'name'] = src.producto;
+  if (src.code !== undefined) out[schema.code || 'code'] = src.code;
+  if (src.codigo !== undefined && !out[schema.code || 'code']) out[schema.code || 'code'] = src.codigo;
+  if (src.qty !== undefined) out[schema.qty || 'qty'] = src.qty;
+  if (src.stock !== undefined && out[schema.qty || 'qty'] === undefined) out[schema.qty || 'qty'] = src.stock;
+  if (src.expiry !== undefined) out[schema.expiry || 'expiry'] = src.expiry;
+  if (src.caducidad !== undefined && out[schema.expiry || 'expiry'] === undefined) out[schema.expiry || 'expiry'] = src.caducidad;
+  // copy other keys
+  Object.keys(src).forEach(k => { if (!out.hasOwnProperty(k)) out[k] = src[k]; });
+
+  const conflictCol = (schema && schema.code) ? schema.code : 'code';
+  const url = base + `?on_conflict=${encodeURIComponent(conflictCol)}`;
+  const headers = Object.assign({}, _headers(), { Prefer: 'resolution=merge-duplicates,return=representation' });
+  // PostgREST accepts a single object or array; we'll use an array with one harmonized object
+  try {
+    const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify([out]) });
+    if (!res.ok) {
+      const txt = await res.text().catch(()=>'');
+      const err = new Error('Supabase saveSingle failed: ' + res.status + ' ' + txt);
+      err.status = res.status;
+      throw err;
+    }
+    const data = await res.json();
+    return Array.isArray(data) ? data[0] : data;
+  } catch (e) {
+    console.error('saveSingle error', e);
+    throw e;
+  }
+}
+
+// expose
+try { if (window && window.__SUPABASE) window.__SUPABASE.saveSingle = saveSingle; } catch(e) {}
