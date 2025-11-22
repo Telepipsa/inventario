@@ -28,28 +28,34 @@ async function listProducts() {
 }
 
 async function saveProducts(products) {
-  // Simple replace-all: DELETE all rows then INSERT provided array
-  // Requires RLS disabled or policies that allow anon key to delete/insert.
+  // Upsert by `code` (or fallback to insert). This avoids deleting all rows.
+  // Requires that `code` is unique or that you accept merging by that column.
   const base = SUPABASE_URL.replace(/\/$/, '') + '/rest/v1/products';
-  // 1) DELETE all
-  let dres = await fetch(base, { method: 'DELETE', headers: _headers() });
-  if (!dres.ok) {
-    const txt = await dres.text().catch(()=>'');
-    const err = new Error('Supabase delete failed: ' + dres.status + ' ' + txt);
-    err.status = dres.status;
-    throw err;
-  }
-  // 2) INSERT many rows
   const payload = (Array.isArray(products) ? products : []);
-  // attempt to map common field names to table columns if necessary
-  const insertRes = await fetch(base, { method: 'POST', headers: Object.assign({}, _headers(), { Prefer: 'return=representation' }), body: JSON.stringify(payload) });
-  if (!insertRes.ok) {
-    const txt = await insertRes.text().catch(()=>'');
-    const err = new Error('Supabase insert failed: ' + insertRes.status + ' ' + txt);
-    err.status = insertRes.status;
+  if (payload.length === 0) return [];
+
+  // Normalize payload: ensure field names match table columns
+  const normalized = payload.map(p => {
+    const out = Object.assign({}, p);
+    // common mappings used in this app
+    if (out.producto && !out.name) out.name = out.producto;
+    if (out.codigo && !out.code) out.code = out.codigo;
+    if (out.caducidad && !out.expiry) out.expiry = out.caducidad;
+    if (out.stock !== undefined && out.qty === undefined) out.qty = out.stock;
+    return out;
+  });
+
+  // Use upsert via on_conflict=code and Prefer resolution=merge-duplicates
+  const url = base + '?on_conflict=code';
+  const headers = Object.assign({}, _headers(), { Prefer: 'resolution=merge-duplicates,return=representation' });
+  const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(normalized) });
+  if (!res.ok) {
+    const txt = await res.text().catch(()=>'');
+    const err = new Error('Supabase upsert failed: ' + res.status + ' ' + txt);
+    err.status = res.status;
     throw err;
   }
-  const data = await insertRes.json();
+  const data = await res.json();
   return data;
 }
 
