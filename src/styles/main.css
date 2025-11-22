@@ -253,7 +253,7 @@ body {
 .history-empty { padding:12px; color:#666; text-align:center; }
 
 /* Icon picker popover */
-.icon-picker { position:fixed; z-index:1200; background:var(--card); border-radius:8px; padding:10px; box-shadow:0 6px 20px rgba(0,0,0,0.12); display:none; }
+.icon-picker { position:fixed; z-index:1200; background:var(--card); border-radius:8px; padding:10px; box-shadow:0 6px 20px rgba(0,0,0,0.12); display:none; height: fit-content; height: -webkit-fit-content; }
 .icon-picker.visible { display:block; }
 .icon-picker .grid { display:grid; grid-template-columns:repeat(4, 1fr); gap:8px; max-width:360px; }
 .icon-picker .item { cursor:pointer; padding:6px; border-radius:6px; text-align:center; }
