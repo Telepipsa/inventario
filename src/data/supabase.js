@@ -24,29 +24,82 @@ async function listProducts() {
     throw err;
   }
   const data = await res.json();
+  // Cache detected schema (column names) for mapping in saveProducts
+  try {
+    if (!window.__SUPABASE_SCHEMA) {
+      const sample = (Array.isArray(data) && data.length > 0) ? data[0] : null;
+      window.__SUPABASE_SCHEMA = detectSchemaFromSample(sample);
+    }
+  } catch (e) {
+    console.warn('detect schema failed', e);
+  }
   return data;
 }
 
+function detectSchemaFromSample(sample) {
+  // sample is an object with column keys from the DB. We map common variants.
+  const schema = {
+    id: 'id',
+    code: null,
+    name: null,
+    qty: null,
+    expiry: null
+  };
+  if (!sample || typeof sample !== 'object') return schema;
+  const keys = Object.keys(sample);
+  // helper to find first match from candidates
+  function find(candidates) {
+    for (const c of candidates) if (keys.includes(c)) return c;
+    return null;
+  }
+  schema.code = find(['code', 'codigo', 'cod', 'codigo_barra', 'sku']);
+  schema.name = find(['name', 'producto', 'product', 'producto_nombre', 'descripcion']);
+  schema.qty = find(['qty', 'stock', 'cantidad', 'units']);
+  schema.expiry = find(['expiry', 'caducidad', 'caducidad_date', 'expiration']);
+  // ensure id exists
+  schema.id = find(['id', 'product_id']) || 'id';
+  return schema;
+}
+
 async function saveProducts(products) {
-  // Upsert by `code` (or fallback to insert). This avoids deleting all rows.
-  // Requires that `code` is unique or that you accept merging by that column.
+  // Upsert by detected conflict column (code/codigo) or fallback to insert.
   const base = SUPABASE_URL.replace(/\/$/, '') + '/rest/v1/products';
   const payload = (Array.isArray(products) ? products : []);
   if (payload.length === 0) return [];
 
   // Normalize payload: ensure field names match table columns
+  // Build normalized payload using detected schema (if available)
+  const schema = window.__SUPABASE_SCHEMA || detectSchemaFromSample(null);
   const normalized = payload.map(p => {
-    const out = Object.assign({}, p);
-    // common mappings used in this app
-    if (out.producto && !out.name) out.name = out.producto;
-    if (out.codigo && !out.code) out.code = out.codigo;
-    if (out.caducidad && !out.expiry) out.expiry = out.caducidad;
-    if (out.stock !== undefined && out.qty === undefined) out.qty = out.stock;
+    const out = {};
+    // fill using schema mapping: if DB uses Spanish columns, preserve those names
+    const src = Object.assign({}, p);
+    // map id if present
+    if (src.id !== undefined) out[schema.id] = src.id;
+    // name
+    if (src.name !== undefined) out[schema.name || 'name'] = src.name;
+    if (src.producto !== undefined && !out[schema.name || 'name']) out[schema.name || 'name'] = src.producto;
+    // code
+    if (src.code !== undefined) out[schema.code || 'code'] = src.code;
+    if (src.codigo !== undefined && !out[schema.code || 'code']) out[schema.code || 'code'] = src.codigo;
+    // qty / stock
+    if (src.qty !== undefined) out[schema.qty || 'qty'] = src.qty;
+    if (src.stock !== undefined && out[schema.qty || 'qty'] === undefined) out[schema.qty || 'qty'] = src.stock;
+    // expiry / caducidad
+    if (src.expiry !== undefined) out[schema.expiry || 'expiry'] = src.expiry;
+    if (src.caducidad !== undefined && out[schema.expiry || 'expiry'] === undefined) out[schema.expiry || 'expiry'] = src.caducidad;
+    // copy other unknown fields as-is (best effort)
+    Object.keys(src).forEach(k => {
+      if (![ 'id', 'name', 'producto', 'code', 'codigo', 'qty', 'stock', 'expiry', 'caducidad' ].includes(k)) {
+        out[k] = src[k];
+      }
+    });
     return out;
   });
 
-  // Use upsert via on_conflict=code and Prefer resolution=merge-duplicates
-  const url = base + '?on_conflict=code';
+  // determine conflict column
+  const conflictCol = (window.__SUPABASE_SCHEMA && window.__SUPABASE_SCHEMA.code) ? window.__SUPABASE_SCHEMA.code : 'code';
+  const url = base + `?on_conflict=${encodeURIComponent(conflictCol)}`;
   const headers = Object.assign({}, _headers(), { Prefer: 'resolution=merge-duplicates,return=representation' });
   try {
     const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(normalized) });
@@ -59,11 +112,8 @@ async function saveProducts(products) {
     const data = await res.json();
     return data;
   } catch (upsertErr) {
-    // If upsert fails (often because on_conflict references a non-unique column),
-    // fallback to a delete+insert strategy. This requires that RLS allows DELETE/INSERT for anon key.
     console.warn('Supabase upsert error, attempting delete+insert fallback', upsertErr);
     try {
-      // Attempt to DELETE all rows (only works if anon key has permission)
       const dres = await fetch(base, { method: 'DELETE', headers: _headers() });
       if (!dres.ok) {
         const txt = await dres.text().catch(()=>'');
@@ -71,7 +121,6 @@ async function saveProducts(products) {
         err2.status = dres.status;
         throw err2;
       }
-      // Insert payload
       const insertRes = await fetch(base, { method: 'POST', headers: Object.assign({}, _headers(), { Prefer: 'return=representation' }), body: JSON.stringify(normalized) });
       if (!insertRes.ok) {
         const txt = await insertRes.text().catch(()=>'');
@@ -82,7 +131,6 @@ async function saveProducts(products) {
       const data2 = await insertRes.json();
       return data2;
     } catch (fallbackErr) {
-      // rethrow the original upsert error if fallback also fails
       console.error('Supabase upsert and fallback both failed', fallbackErr);
       throw upsertErr;
     }
