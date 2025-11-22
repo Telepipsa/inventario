@@ -7,16 +7,66 @@ import { importFile } from '../src/data/import.js';
 // Try to load the Supabase wrapper dynamically using an absolute path so it
 // reliably loads in the browser environment. This sets `window.__SUPABASE`.
 (function loadSupabaseWrapper(){
-  try {
-    // use absolute path so it works when served statically
-    import('/src/data/supabase.js').then(() => {
-      try { console.log('[supabase] wrapper loaded'); } catch(e){}
-    }).catch(e => {
-      try { console.warn('[supabase] failed to load wrapper', e); } catch(e){}
-    });
-  } catch (e) {
-    try { console.warn('[supabase] dynamic import not supported', e); } catch(e){}
-  }
+  // Try several candidate paths and provide detailed diagnostics so we can
+  // determine why `window.__SUPABASE` might be undefined in the browser.
+  (async function() {
+    const candidates = [
+      './supabase.js',        // when app.js is served from /public, this resolves to /public/supabase.js
+      '/supabase.js',         // when server root is public/, this resolves correctly
+      '/public/supabase.js',  // when server root is project root
+      '/src/data/supabase.js',
+      './src/data/supabase.js',
+      '../src/data/supabase.js',
+      '/public/src/data/supabase.js'
+    ];
+    let lastErr = null;
+    for (const p of candidates) {
+      try {
+        console.info('[supabase] attempting dynamic import from', p);
+        const mod = await import(p);
+        console.info('[supabase] module imported from', p, 'module keys:', Object.keys(mod));
+        // If the module didn't set window.__SUPABASE, populate it from exports.
+        try {
+          if (!window.__SUPABASE) window.__SUPABASE = {};
+          if (!window.__USE_SUPABASE) window.__USE_SUPABASE = true;
+          if (!window.__SUPABASE.listProducts && typeof mod.listProducts === 'function') window.__SUPABASE.listProducts = mod.listProducts;
+          if (!window.__SUPABASE.saveProducts && typeof mod.saveProducts === 'function') window.__SUPABASE.saveProducts = mod.saveProducts;
+          if (!window.__SUPABASE.saveSingle && typeof mod.saveSingle === 'function') window.__SUPABASE.saveSingle = mod.saveSingle;
+        } catch (e) {
+          console.warn('[supabase] could not attach exports to window', e);
+        }
+        // Small deferred check to log final presence
+        setTimeout(() => {
+          try { console.info('[supabase] final window.__SUPABASE keys:', window.__SUPABASE ? Object.keys(window.__SUPABASE) : 'undefined'); } catch(e){}
+        }, 200);
+        return;
+      } catch (err) {
+        lastErr = err;
+        console.warn('[supabase] import failed for', p, err && err.message ? err.message : err);
+      }
+    }
+    console.error('[supabase] all dynamic import attempts failed. last error:', lastErr);
+    // As a last-resort fallback, inject a module <script> tag for each candidate
+    // This helps when dynamic import is blocked by server config but script tags are allowed.
+    for (const p of candidates) {
+      try {
+        console.info('[supabase] injecting module script fallback for', p);
+        const s = document.createElement('script');
+        s.type = 'module';
+        s.src = p;
+        document.head.appendChild(s);
+        // wait briefly for the module to execute and set window.__SUPABASE
+        await new Promise(res => setTimeout(res, 350));
+        if (window.__SUPABASE && typeof window.__SUPABASE.listProducts === 'function') {
+          console.info('[supabase] loaded via script tag fallback from', p);
+          return;
+        }
+      } catch (e) {
+        console.warn('[supabase] script tag fallback failed for', p, e && e.message ? e.message : e);
+      }
+    }
+    console.error('[supabase] module could not be loaded by any method');
+  })();
 })();
 
 console.log('✅ app.js cargado correctamente');
@@ -238,7 +288,8 @@ function startServerPoll(intervalSec = 45) {
 
 // trigger immediate fetch on visibility change (when tab becomes active)
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && window.__API_BASE) {
+  // When the tab becomes visible, re-fetch from server if we have a server or Supabase
+  if (document.visibilityState === 'visible' && (window.__API_BASE || window.__USE_SUPABASE)) {
     (async () => {
       try {
         const remote = await serverLoadProducts();
@@ -256,6 +307,41 @@ document.addEventListener('visibilitychange', () => {
     })();
   }
 });
+
+// Shared helper: try to load products from server (used by the "Cargar" button and on startup)
+async function loadProductsFromServerPreferRemote() {
+  showLoading('Cargando productos desde servidor...');
+  try {
+    // if no API_BASE is configured, attempt the known public server once
+    if (!window.__API_BASE) {
+      try {
+        const known = 'https://inventario-zrlk.onrender.com';
+        const r = await fetch(known.replace(/\/$/, '') + '/api/products', { cache: 'no-cache' });
+        if (r.ok) {
+          window.__API_BASE = known.replace(/\/$/, '');
+          try { localStorage.setItem('API_BASE', window.__API_BASE); } catch(e) {}
+        }
+      } catch (err) { /* ignore, will fallback to local */ }
+    }
+    if (!window.__API_BASE) throw new Error('No API_BASE');
+    const remote = await serverLoadProducts();
+    if (!Array.isArray(remote) || remote.length === 0) throw new Error('Empty remote response');
+    products = remote;
+    // normalize code-like fields
+    try { products.forEach(p => { if (p && typeof p === 'object') { if (p.codigo) p.codigo = String(p.codigo).trim(); if (p.predeterminado) p.predeterminado = String(p.predeterminado).trim(); if (p.code) p.code = String(p.code).trim(); } }); } catch (e) {}
+    // Persist fetched remote list to local cache but do NOT re-push the same remote back to the server.
+    try { saveProducts(products); } catch(e) { console.warn('saveProducts local cache failed', e); }
+    window.__products = products;
+    try { if (typeof renderAndBind === 'function') renderAndBind(); } catch(e) { console.warn('render after server load failed', e); }
+    showToast(`Cargados ${products.length} productos desde servidor`, 2000, 'success');
+    return true;
+  } catch (err) {
+    console.warn('server load failed', err);
+    return false;
+  } finally {
+    hideLoading();
+  }
+}
 
 // Listen to BroadcastChannel updates from other tabs
 if (bc) {
@@ -310,7 +396,7 @@ if (forceSyncBtn) forceSyncBtn.addEventListener('click', async () => {
   if (!confirm('¿Forzar sincronización con el servidor ahora? Esto intentará subir los productos locales.')) return;
   showToast('Forzando sincronización...', 2000, '');
   try {
-    const local = loadProducts();
+    const local = window.__products || [];
     await serverSaveProducts(local);
     showToast('Sincronización forzada completada', 2500, 'success');
   } catch (err) {
@@ -324,8 +410,37 @@ if (forceSyncBtn) forceSyncBtn.addEventListener('click', async () => {
   // load server config from localStorage if present (and attempt auto-detect)
   try { loadServerConfig(); } catch (e) { console.warn('loadServerConfig failed', e); }
 
-  // If no API_BASE configured, try to auto-detect a server on the same origin
-  if (!window.__API_BASE) {
+  // If a Supabase wrapper is available, always load products from the DB
+  // and skip any local/file fallbacks. This enforces DB-only loads as requested.
+  try {
+    if (window.__USE_SUPABASE && window.__SUPABASE && typeof window.__SUPABASE.listProducts === 'function') {
+      try {
+        showLoading('Cargando productos desde la base de datos...');
+      } catch (e) {}
+      try {
+        const remote = await window.__SUPABASE.listProducts();
+        if (Array.isArray(remote)) {
+          products = remote;
+          window.__products = products;
+          try { if (typeof renderAndBind === 'function') renderAndBind(); } catch(e) { console.warn('render after supabase init failed', e); }
+        }
+      } catch (e) {
+        console.warn('[supabase] initial load failed', e);
+      } finally {
+        try { hideLoading(); } catch (e) {}
+      }
+      return; // do not proceed to any local/file fallbacks
+    }
+  } catch (e) { console.warn('supabase detection failed', e); }
+
+  // On first load, prefer the same server-loading logic used by the "Cargar" button.
+  // This ensures the initial load behaves identically to when the user presses the button.
+  try {
+    const ok = await loadProductsFromServerPreferRemote();
+    if (ok) return; // loaded and rendered
+  } catch (e) { /* ignore and continue with auto-detect/fallbacks */ }
+  // If no API_BASE configured and we don't have Supabase, try to auto-detect a server on the same origin
+  if (!window.__API_BASE && !window.__USE_SUPABASE) {
     try {
       const tryUrl = window.location.origin.replace(/\/$/, '') + '/api/products';
       const r = await fetch(tryUrl, { cache: 'no-cache' });
@@ -348,9 +463,9 @@ if (forceSyncBtn) forceSyncBtn.addEventListener('click', async () => {
     // Try to load from server automatically on startup (prefer remote over local)
     async function tryAutoServerLoad() {
       showLoading('Cargando productos desde servidor...');
-      // If no API_BASE configured, probe a known public server once
+      // If no API_BASE configured and we don't have Supabase, probe a known public server once
       try {
-        if (!window.__API_BASE) {
+        if (!window.__API_BASE && !window.__USE_SUPABASE) {
         try {
           const known = 'https://inventario-zrlk.onrender.com';
           const tryUrl = known.replace(/\/$/, '') + '/api/products';
@@ -1239,60 +1354,8 @@ const loadProductsBtn = document.getElementById('loadProductsBtn');
 if (loadProductsBtn) {
   loadProductsBtn.addEventListener('click', async (e) => {
     e.stopPropagation();
-    // try to load from server (prefer remote)
-    const tryServer = async () => {
-      showLoading('Cargando productos desde servidor...');
-      try {
-        // if no API_BASE is configured, attempt the known public server once
-        if (!window.__API_BASE) {
-          try {
-            const known = 'https://inventario-zrlk.onrender.com';
-            const r = await fetch(known.replace(/\/$/, '') + '/api/products', { cache: 'no-cache' });
-            if (r.ok) {
-              window.__API_BASE = known.replace(/\/$/, '');
-              localStorage.setItem('API_BASE', window.__API_BASE);
-            }
-          } catch (err) { /* ignore, will fallback to local */ }
-        }
-        if (!window.__API_BASE) throw new Error('No API_BASE');
-        const remote = await serverLoadProducts();
-        if (!Array.isArray(remote) || remote.length === 0) throw new Error('Empty remote response');
-        products = remote;
-        // normalize code-like fields
-        try { products.forEach(p => { if (p && typeof p === 'object') { if (p.codigo) p.codigo = String(p.codigo).trim(); if (p.predeterminado) p.predeterminado = String(p.predeterminado).trim(); if (p.code) p.code = String(p.code).trim(); } }); } catch (e) {}
-        syncSave(products);
-        window.__products = products;
-        renderAndBind();
-        showToast(`Cargados ${products.length} productos desde servidor`, 2000, 'success');
-        return true;
-      } catch (err) {
-        console.warn('server load failed', err);
-        return false;
-      } finally {
-        hideLoading();
-      }
-    };
-
-    const ok = await tryServer();
-    if (ok) return;
-
-    // fallback to local storage
-    try {
-      const local = loadProducts();
-      if (!local || !Array.isArray(local) || local.length === 0) {
-        showToast('No hay productos guardados localmente', 2000, 'error');
-        return;
-      }
-      products = local;
-      // normalize code-like fields
-      try { products.forEach(p => { if (p && typeof p === 'object') { if (p.codigo) p.codigo = String(p.codigo).trim(); if (p.predeterminado) p.predeterminado = String(p.predeterminado).trim(); if (p.code) p.code = String(p.code).trim(); } }); } catch (e) {}
-      window.__products = products;
-      renderAndBind();
-      showToast(`Cargados ${products.length} productos desde local`, 2000, 'success');
-    } catch (err) {
-      console.error('load local products error', err);
-      showToast('Error cargando productos locales', 2500, 'error');
-    }
+    const ok = await loadProductsFromServerPreferRemote();
+    if (!ok) showToast('No se pudieron cargar productos desde el servidor', 2500, 'error');
   });
 }
 

@@ -28,8 +28,38 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
+  const req = e.request;
+  const url = new URL(req.url);
+
+  // Heuristics: treat navigations and HTML accepts as navigation
+  const isNavigation = req.mode === 'navigate' || (req.headers && (req.headers.get('accept') || '').includes('text/html'));
+  // treat supabase and typical REST paths as API requests
+  const isSupabase = url.hostname && url.hostname.includes('supabase.co');
+  const isApi = url.pathname && (url.pathname.startsWith('/api') || url.pathname.startsWith('/rest') || url.pathname.startsWith('/api/'));
+
+  // Network-first for navigation and API calls (prefer fresh data)
+  if (isNavigation || isSupabase || isApi) {
+    e.respondWith(
+      fetch(req).then(networkRes => {
+        // Optionally update cache for navigation responses here if desired
+        return networkRes;
+      }).catch(() => {
+        // If offline or network fails, fall back to cache if present
+        return caches.match(req).then(cached => cached || new Response('', { status: 503, statusText: 'Service Unavailable' }));
+      })
+    );
+    return;
+  }
+
+  // Default: cache-first for static assets (fast load)
   e.respondWith(
-    caches.match(e.request).then(r => r || fetch(e.request)).catch(() => fetch(e.request))
+    caches.match(req).then(cached => {
+      if (cached) return cached;
+      return fetch(req).then(net => {
+        // Optionally cache fetched assets here
+        return net;
+      }).catch(() => cached);
+    })
   );
 });
 

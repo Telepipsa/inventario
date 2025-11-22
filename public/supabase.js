@@ -1,4 +1,4 @@
-// Simple Supabase REST client wrapper for this app
+// Public copy of Supabase REST client wrapper for static-serving environments
 // WARNING: This file contains your anon key. It's ok for client-side testing,
 // but do NOT commit service_role keys or expose them publicly.
 
@@ -14,7 +14,6 @@ function _headers() {
 }
 
 async function listProducts() {
-  // GET /rest/v1/products?select=*
   const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/products?select=*`;
   const res = await fetch(url, { method: 'GET', headers: _headers(), cache: 'no-store' });
   if (!res.ok) {
@@ -24,7 +23,6 @@ async function listProducts() {
     throw err;
   }
   const data = await res.json();
-  // Cache detected schema (column names) for mapping in saveProducts
   try {
     if (!window.__SUPABASE_SCHEMA) {
       const sample = (Array.isArray(data) && data.length > 0) ? data[0] : null;
@@ -33,11 +31,23 @@ async function listProducts() {
   } catch (e) {
     console.warn('detect schema failed', e);
   }
+  // Normalize returned rows so frontend expects `icon` and `code` consistently.
+  try {
+    const schema = window.__SUPABASE_SCHEMA || detectSchemaFromSample((Array.isArray(data) && data.length>0)?data[0]:null);
+    if (Array.isArray(data) && data.length > 0) {
+      data.forEach(row => {
+        // map icon column to `icon` for UI
+        if (schema && schema.icon && row[schema.icon] !== undefined) row.icon = row[schema.icon];
+        // map code-like column to `code` for UI convenience
+        if (schema && schema.code && row[schema.code] !== undefined) row.code = row[schema.code];
+        if (!row.code && row.codigo) row.code = row.codigo;
+      });
+    }
+  } catch(e) { /* non-fatal */ }
   return data;
 }
 
 function detectSchemaFromSample(sample) {
-  // sample is an object with column keys from the DB. We map common variants.
   const schema = {
     id: 'id',
     code: null,
@@ -48,7 +58,6 @@ function detectSchemaFromSample(sample) {
   };
   if (!sample || typeof sample !== 'object') return schema;
   const keys = Object.keys(sample);
-  // helper to find first match from candidates
   function find(candidates) {
     for (const c of candidates) if (keys.includes(c)) return c;
     return null;
@@ -58,44 +67,31 @@ function detectSchemaFromSample(sample) {
   schema.qty = find(['qty', 'stock', 'cantidad', 'units']);
   schema.expiry = find(['expiry', 'caducidad', 'caducidad_date', 'expiration']);
   schema.icon = find(['icon', 'icono', 'imagen', 'ruta_icono']);
-  // ensure id exists
   schema.id = find(['id', 'product_id']) || 'id';
-  // also expose full column list for payload harmonization
   schema.columns = keys.slice();
   return schema;
 }
 
 async function saveProducts(products) {
-  // Upsert by detected conflict column (code/codigo) or fallback to insert.
   const base = SUPABASE_URL.replace(/\/$/, '') + '/rest/v1/products';
   const payload = (Array.isArray(products) ? products : []);
   if (payload.length === 0) return [];
-
-  // Normalize payload: ensure field names match table columns
-  // Build normalized payload using detected schema (if available)
   const schema = window.__SUPABASE_SCHEMA || detectSchemaFromSample(null);
   const normalized = payload.map(p => {
     const out = {};
-    // fill using schema mapping: if DB uses Spanish columns, preserve those names
     const src = Object.assign({}, p);
-    // map id if present
     if (src.id !== undefined) out[schema.id] = src.id;
-    // name
     if (src.name !== undefined) out[schema.name || 'name'] = src.name;
     if (src.producto !== undefined && !out[schema.name || 'name']) out[schema.name || 'name'] = src.producto;
-    // code
     if (src.code !== undefined) out[schema.code || 'code'] = src.code;
     if (src.codigo !== undefined && !out[schema.code || 'code']) out[schema.code || 'code'] = src.codigo;
-    // qty / stock
     if (src.qty !== undefined) out[schema.qty || 'qty'] = src.qty;
     if (src.stock !== undefined && out[schema.qty || 'qty'] === undefined) out[schema.qty || 'qty'] = src.stock;
-    // expiry / caducidad
     if (src.expiry !== undefined) out[schema.expiry || 'expiry'] = src.expiry;
     if (src.caducidad !== undefined && out[schema.expiry || 'expiry'] === undefined) out[schema.expiry || 'expiry'] = src.caducidad;
     // icon
     if (src.icon !== undefined) out[schema.icon || 'icon'] = src.icon;
     if (src.icono !== undefined && !out[schema.icon || 'icon']) out[schema.icon || 'icon'] = src.icono;
-    // copy other unknown fields as-is (best effort)
     Object.keys(src).forEach(k => {
       if (![ 'id', 'name', 'producto', 'code', 'codigo', 'qty', 'stock', 'expiry', 'caducidad', 'icon', 'icono' ].includes(k)) {
         out[k] = src[k];
@@ -103,36 +99,30 @@ async function saveProducts(products) {
     });
     return out;
   });
-
-  // determine conflict column: prefer detected schema, otherwise infer from payload keys
   const detectedSchema = window.__SUPABASE_SCHEMA || detectSchemaFromSample(null);
-  // candidates to look for in order
   const conflictCandidates = [ (detectedSchema && detectedSchema.code), 'codigo', 'code', 'cod', 'codigo_barra', 'sku' ].filter(Boolean);
-  // allowedCols may be present which reflect actual DB columns
   const allowedCols = Array.isArray(detectedSchema.columns) && detectedSchema.columns.length > 0 ? detectedSchema.columns : null;
   let conflictCol = null;
-  if (detectedSchema && detectedSchema.code) conflictCol = detectedSchema.code;
-  else if (allowedCols) {
-    // pick first candidate that exists in allowedCols
+  // Prefer a conflict column that actually exists in the DB schema
+  if (allowedCols) {
     for (const c of conflictCandidates) { if (allowedCols.includes(c)) { conflictCol = c; break; } }
+    // if none of the code-like candidates exist, prefer the primary id column if present
+    if (!conflictCol && detectedSchema && detectedSchema.id && allowedCols.includes(detectedSchema.id)) {
+      conflictCol = detectedSchema.id;
+    }
   }
-  // fallback to checking normalized payload keys
+  // If we still don't have a safe conflict column, check the normalized payload keys as a last resort
   if (!conflictCol) {
     const sample = normalized && normalized.length > 0 ? normalized[0] : {};
     const sampleKeys = Object.keys(sample || {});
     for (const c of conflictCandidates) { if (sampleKeys.includes(c)) { conflictCol = c; break; } }
   }
-  if (!conflictCol) conflictCol = 'code';
-  const url = base + `?on_conflict=${encodeURIComponent(conflictCol)}`;
-  const headers = Object.assign({}, _headers(), { Prefer: 'resolution=merge-duplicates,return=representation' });
 
-  // PostgREST requires that all objects in the array have the same set of keys.
-  // Use detected schema columns (if available) to only send valid DB columns.
-  // detectedSchema and allowedCols used to harmonize payloads
+  let useOnConflict = Boolean(conflictCol && allowedCols && allowedCols.includes(conflictCol));
+  const url = useOnConflict ? base + `?on_conflict=${encodeURIComponent(conflictCol)}` : base;
+  const headers = Object.assign({}, _headers(), { Prefer: 'resolution=merge-duplicates,return=representation' });
   const detectedSchema2 = detectedSchema;
   const allowedCols2 = allowedCols;
-  // If we have allowedCols, only include those columns (fill missing with null).
-  // Otherwise fall back to union-of-keys behaviour.
   let harmonized;
   if (allowedCols2) {
     harmonized = normalized.map(obj => {
@@ -150,41 +140,64 @@ async function saveProducts(products) {
       return o;
     });
   }
-
   try {
-    const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(harmonized) });
-    if (!res.ok) {
-      const txt = await res.text().catch(()=>'');
-      const err = new Error('Supabase upsert failed: ' + res.status + ' ' + txt);
-      err.status = res.status;
-      throw err;
+    console.info('[supabase] saveProducts using on_conflict?', useOnConflict, 'col=', conflictCol);
+    if (useOnConflict) {
+      const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(harmonized) });
+      if (!res.ok) {
+        const txt = await res.text().catch(()=>'');
+        const err = new Error('Supabase upsert failed: ' + res.status + ' ' + txt);
+        err.status = res.status;
+        throw err;
+      }
+      const data = await res.json();
+      return data;
     }
-    const data = await res.json();
-    return data;
+    // No safe on_conflict available. If we have a primary id column, update per-item via PATCH, otherwise fall back to POST inserts.
+    if (detectedSchema && detectedSchema.id && allowedCols && allowedCols.includes(detectedSchema.id)) {
+      // perform PATCH per item by id
+      const results = [];
+      for (const item of harmonized) {
+        const idVal = item[detectedSchema.id];
+        if (idVal === undefined || idVal === null) {
+          // insert new row
+          const r = await fetch(base, { method: 'POST', headers, body: JSON.stringify([item]) });
+          if (!r.ok) { const txt = await r.text().catch(()=>''); throw new Error('Insert failed: ' + r.status + ' ' + txt); }
+          const d = await r.json(); results.push(...(Array.isArray(d)?d:[d]));
+        } else {
+          // PATCH by primary key
+          const patchUrl = `${base}?${encodeURIComponent(detectedSchema.id)}=eq.${encodeURIComponent(idVal)}`;
+          const r = await fetch(patchUrl, { method: 'PATCH', headers, body: JSON.stringify(item) });
+          if (!r.ok) { const txt = await r.text().catch(()=>''); throw new Error('Patch failed: ' + r.status + ' ' + txt); }
+          const d = await r.json(); results.push(...(Array.isArray(d)?d:[d]));
+        }
+      }
+      return results;
+    }
+    // Last resort: send inserts without on_conflict
+    const r = await fetch(base, { method: 'POST', headers, body: JSON.stringify(harmonized) });
+    if (!r.ok) { const txt = await r.text().catch(()=>''); const err = new Error('Supabase insert failed: ' + r.status + ' ' + txt); err.status = r.status; throw err; }
+    const d = await r.json();
+    return d;
   } catch (upsertErr) {
-    // Do not attempt DELETE without WHERE: PostgREST rejects it. Instead surface the error.
     console.error('Supabase upsert failed and no safe fallback is available', upsertErr);
     throw upsertErr;
   }
 }
 
-// expose convenient names on window for the app to detect availability
 try {
   window.__USE_SUPABASE = true;
   window.__SUPABASE = window.__SUPABASE || {};
   window.__SUPABASE.listProducts = listProducts;
   window.__SUPABASE.saveProducts = saveProducts;
-} catch (e) {
-  // ignore if window not available in some contexts
-}
-// Save or upsert a single product object. Uses detected schema (codigo/producto/stock)
+} catch (e) {}
+
 async function saveSingle(product) {
   if (!product || typeof product !== 'object') return null;
   const base = SUPABASE_URL.replace(/\/$/, '') + '/rest/v1/products';
   const schema = window.__SUPABASE_SCHEMA || detectSchemaFromSample(product);
   const src = Object.assign({}, product);
   const out = {};
-  // map fields using schema
   if (src.id !== undefined) out[schema.id || 'id'] = src.id;
   if (src.name !== undefined) out[schema.name || 'name'] = src.name;
   if (src.producto !== undefined && !out[schema.name || 'name']) out[schema.name || 'name'] = src.producto;
@@ -197,13 +210,18 @@ async function saveSingle(product) {
   // icon mapping
   if (src.icon !== undefined) out[schema.icon || 'icon'] = src.icon;
   if (src.icono !== undefined && !out[schema.icon || 'icon']) out[schema.icon || 'icon'] = src.icono;
-  // copy other keys
   Object.keys(src).forEach(k => { if (!out.hasOwnProperty(k)) out[k] = src[k]; });
-
-  const conflictCol = (schema && schema.code) ? schema.code : 'code';
-  const url = base + `?on_conflict=${encodeURIComponent(conflictCol)}`;
+  // Choose a safe conflict column only if it exists in DB schema; otherwise we'll PATCH by id or fall back to inserts
+  const conflictCandidates = [ (schema && schema.code), 'codigo', 'code', 'cod', 'codigo_barra', 'sku' ].filter(Boolean);
+  const allowedCols = Array.isArray((window.__SUPABASE_SCHEMA && window.__SUPABASE_SCHEMA.columns) ? window.__SUPABASE_SCHEMA.columns : null) ? window.__SUPABASE_SCHEMA.columns : null;
+  let conflictCol = null;
+  if (allowedCols) {
+    for (const c of conflictCandidates) { if (allowedCols.includes(c)) { conflictCol = c; break; } }
+    if (!conflictCol && schema && schema.id && allowedCols.includes(schema.id)) conflictCol = schema.id;
+  }
+  const useOnConflict = Boolean(conflictCol && allowedCols && allowedCols.includes(conflictCol));
+  const url = useOnConflict ? base + `?on_conflict=${encodeURIComponent(conflictCol)}` : base;
   const headers = Object.assign({}, _headers(), { Prefer: 'resolution=merge-duplicates,return=representation' });
-  // PostgREST accepts a single object or array; we'll use an array with one harmonized object
   try {
     // If we have detected DB columns, only send those keys (fill missing with null)
     const detected = window.__SUPABASE_SCHEMA || detectSchemaFromSample(product);
@@ -213,23 +231,38 @@ async function saveSingle(product) {
       payloadObj = {};
       allowed.forEach(k => { payloadObj[k] = out.hasOwnProperty(k) ? out[k] : null; });
     }
-    const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify([payloadObj]) });
-    if (!res.ok) {
-      const txt = await res.text().catch(()=>'');
-      const err = new Error('Supabase saveSingle failed: ' + res.status + ' ' + txt);
-      err.status = res.status;
-      throw err;
+    console.info('[supabase] saveSingle using on_conflict?', useOnConflict, 'col=', conflictCol);
+    if (useOnConflict) {
+      const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify([payloadObj]) });
+      if (!res.ok) {
+        const txt = await res.text().catch(()=>'');
+        const err = new Error('Supabase saveSingle failed: ' + res.status + ' ' + txt);
+        err.status = res.status;
+        throw err;
+      }
+      const data = await res.json();
+      return Array.isArray(data) ? data[0] : data;
     }
-    const data = await res.json();
-    return Array.isArray(data) ? data[0] : data;
+    // No safe on_conflict: if we have an id column, PATCH by id, otherwise POST insert
+    if (schema && schema.id && allowedCols && allowedCols.includes(schema.id) && payloadObj[schema.id] !== undefined && payloadObj[schema.id] !== null) {
+      const idVal = payloadObj[schema.id];
+      const patchUrl = `${base}?${encodeURIComponent(schema.id)}=eq.${encodeURIComponent(idVal)}`;
+      const r = await fetch(patchUrl, { method: 'PATCH', headers, body: JSON.stringify(payloadObj) });
+      if (!r.ok) { const txt = await r.text().catch(()=>''); const err = new Error('Supabase patch failed: ' + r.status + ' ' + txt); err.status = r.status; throw err; }
+      const d = await r.json();
+      return Array.isArray(d) ? d[0] : d;
+    }
+    // last resort: insert without on_conflict
+    const r = await fetch(base, { method: 'POST', headers, body: JSON.stringify([payloadObj]) });
+    if (!r.ok) { const txt = await r.text().catch(()=>''); const err = new Error('Supabase saveSingle insert failed: ' + r.status + ' ' + txt); err.status = r.status; throw err; }
+    const d = await r.json();
+    return Array.isArray(d) ? d[0] : d;
   } catch (e) {
     console.error('saveSingle error', e);
     throw e;
   }
 }
 
-// expose
 try { if (window && window.__SUPABASE) window.__SUPABASE.saveSingle = saveSingle; } catch(e) {}
 
-// Export all public functions so dynamic imports expose them
 export { listProducts, saveProducts, saveSingle };
