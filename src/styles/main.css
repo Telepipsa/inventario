@@ -38,6 +38,9 @@ body {
   align-items: center;
 }
 
+/* Admin-only controls are hidden by default. Revealed only after entering password. */
+.admin-hidden { display: none !important; }
+
 /* Header-specific button styling for contrast on dark gradient */
 .app-header .btn-outline {
   color: #fff;

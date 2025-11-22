@@ -101,6 +101,27 @@
     </form>
   </div>
 
+  <script>
+    // Inline admin handler: fallback so Admin works even if main JS is cached or fails to load
+    (function(){
+      try {
+        const adminBtn = document.getElementById('adminBtn');
+        if (!adminBtn) return;
+        adminBtn.addEventListener('click', function(){
+          const pw = prompt('Introduce la contraseña de admin:');
+          if (pw === null) return;
+          if (String(pw) === '1494') {
+            document.querySelectorAll('.admin-hidden').forEach(function(el){ el.classList.remove('admin-hidden'); });
+            adminBtn.style.display = 'none';
+          } else {
+            // incorrect password: do nothing (silent)
+          }
+        });
+        // mark as bound so app.js doesn't attach a second listener
+        try { adminBtn.dataset.adminBound = '1'; } catch(e){}
+      } catch(e) { console.warn('inline admin handler failed', e); }
+    })();
+  </script>
   <script type="module" src="./public/app.js"></script>
 </body>
 </html>

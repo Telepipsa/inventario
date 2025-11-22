@@ -45,6 +45,28 @@ const tagFilterFresco = document.getElementById('tagFilterFresco');
 // Default API key for your personal server (used automatically when missing)
 const DEFAULT_API_KEY = '98150e30a8d0945c90fae1f68999a7a9';
 const forceSyncBtn = document.getElementById('forceSyncBtn');
+const adminBtn = document.getElementById('adminBtn');
+
+function revealAdminControls() {
+  try {
+    document.querySelectorAll('.admin-hidden').forEach(el => el.classList.remove('admin-hidden'));
+  } catch (e) { console.warn('revealAdminControls error', e); }
+  if (adminBtn) adminBtn.style.display = 'none';
+}
+
+// only bind if not already bound by the inline fallback (prevents double prompt)
+if (adminBtn && !(adminBtn.dataset && adminBtn.dataset.adminBound)) {
+  adminBtn.addEventListener('click', () => {
+    const pw = prompt('Introduce la contraseña de admin:');
+    if (pw === null) return; // user cancelled
+    if (String(pw) === '1494') {
+      revealAdminControls();
+    } else {
+      // incorrect password: silent
+    }
+  });
+  try { adminBtn.dataset.adminBound = '1'; } catch(e) {}
+}
 
 let products = [];
 
