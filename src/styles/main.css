@@ -322,7 +322,7 @@ body {
   .app-header { flex-direction: column; align-items: center; }
   .app-header .brand { width:100%; display:flex; justify-content:center; align-items:center; gap:8px; order: 1; }
   .app-header .actions { order: 2; width:100%; justify-content:center; }
-  .app-header .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; justify-content:flex-end; }
+  .app-header .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; justify-content:center; }
   .app-header .actions .btn, .app-header .actions .btn-outline { padding:6px 8px; font-size:14px; min-width:56px; }
   .container { margin: 8px; padding: 0 8px; }
   .table { box-shadow: none; border-radius: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
