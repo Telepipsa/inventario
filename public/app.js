@@ -4,6 +4,7 @@ import { openModal, closeModal, bindModal } from '../src/components/modal.js';
 import { loadProducts, saveProducts } from '../src/data/storage.js';
 import { isTodayOrPast } from '../src/services/expiry.js';
 import { importFile } from '../src/data/import.js';
+import '../src/data/supabase.js';
 
 console.log('✅ app.js cargado correctamente');
 
@@ -122,6 +123,14 @@ let products = [];
 
 // Attempt to load from a central API if configured (set window.__API_BASE = 'http://host:port')
 async function serverLoadProducts() {
+  // If a Supabase client wrapper is available, use it
+  try {
+    if (window.__USE_SUPABASE && window.__SUPABASE && typeof window.__SUPABASE.listProducts === 'function') {
+      return await window.__SUPABASE.listProducts();
+    }
+  } catch (e) {
+    console.warn('supabase listProducts failed, falling back to API', e);
+  }
   const base = getApiBaseOrigin(window.__API_BASE);
   if (!base) throw new Error('No API base');
   const res = await fetch(base + '/api/products');
@@ -130,6 +139,14 @@ async function serverLoadProducts() {
 }
 
 async function serverSaveProducts(p) {
+  // If a Supabase client wrapper is available, use it
+  try {
+    if (window.__USE_SUPABASE && window.__SUPABASE && typeof window.__SUPABASE.saveProducts === 'function') {
+      return await window.__SUPABASE.saveProducts(p);
+    }
+  } catch (e) {
+    console.warn('supabase saveProducts failed, falling back to API', e);
+  }
   const base = getApiBaseOrigin(window.__API_BASE);
   if (!base) throw new Error('No API base');
   const headers = { 'Content-Type': 'application/json' };
