@@ -47,6 +47,9 @@ const DEFAULT_API_KEY = '98150e30a8d0945c90fae1f68999a7a9';
 const forceSyncBtn = document.getElementById('forceSyncBtn');
 const adminBtn = document.getElementById('adminBtn');
 
+// Broadcast channel for intra-browser/tab sync (fallback to polling across devices)
+const bc = (typeof BroadcastChannel !== 'undefined') ? new BroadcastChannel('inventario-sync') : null;
+
 function revealAdminControls() {
   try {
     document.querySelectorAll('.admin-hidden').forEach(el => el.classList.remove('admin-hidden'));
@@ -99,6 +102,9 @@ async function serverSaveProducts(p) {
 // wrapper to save locally and optionally push to server
 function syncSave(p) {
   saveProducts(p);
+  // notify other tabs/devices in same origin
+  try { if (bc) bc.postMessage({ type: 'products-updated', products: p }); } catch(e) {}
+
   if (window.__API_BASE) {
     serverSaveProducts(p).then(() => console.info('[sync] saved to server')).catch(e => {
       console.warn('[sync] server save failed', e);
@@ -106,28 +112,91 @@ function syncSave(p) {
       if (e && e.status === 401) {
         // Automatically set a default API key for your personal use, persist it, and retry once
         showToast('Sincronización falló: 401 No autorizado — reintentando con API Key conocida', 3500, 'error');
-        try {
-          const existing = window.__API_KEY || (localStorage && localStorage.getItem && localStorage.getItem('API_KEY'));
-          const k = existing || DEFAULT_API_KEY;
-          if (k) {
-            try { localStorage.setItem('API_KEY', k); } catch(e2) { console.warn('Could not write API_KEY to localStorage', e2); }
-            window.__API_KEY = k;
-            // retry once
-            serverSaveProducts(p).then(() => {
-              console.info('[sync] saved to server after auto-setting API key');
-              showToast('Sincronización reintentada: OK', 2500, 'success');
-            }).catch(err2 => {
-              console.warn('[sync] retry after auto API key failed', err2);
-              if (err2 && err2.status === 401) showToast('Reintento falló: 401 No autorizado (API key inválida)', 5000, 'error');
-              else showToast('Reintento falló (revisa la consola)', 5000, 'error');
-            });
-          }
-        } catch (setErr) { console.warn('Auto-set API key failed', setErr); }
+            try {
+              // If unauthorized, attempt one retry with known key but remain silent about automatic changes
+              const existing = window.__API_KEY || (localStorage && localStorage.getItem && localStorage.getItem('API_KEY'));
+              const k = existing || DEFAULT_API_KEY;
+              if (k) {
+                try { localStorage.setItem('API_KEY', k); } catch(e2) { console.warn('Could not write API_KEY to localStorage', e2); }
+                window.__API_KEY = k;
+                // retry once
+                serverSaveProducts(p).then(() => {
+                  console.info('[sync] saved to server after auto-setting API key');
+                  try { if (bc) bc.postMessage({ type: 'products-updated', products: p }); } catch(e) {}
+                }).catch(err2 => {
+                  console.warn('[sync] retry after auto API key failed', err2);
+                });
+              }
+            } catch (setErr) { console.warn('Auto-set API key failed', setErr); }
       } else {
         showToast('Sincronización falló: no se pudieron guardar los productos en el servidor', 5000, 'error');
       }
     });
   }
+}
+
+// Poll server periodically for changes and update UI when different
+let _pollIntervalId = null;
+function startServerPoll(intervalSec = 45) {
+  if (_pollIntervalId) clearInterval(_pollIntervalId);
+  _pollIntervalId = setInterval(async () => {
+    if (!window.__API_BASE) return;
+    try {
+      const remote = await serverLoadProducts();
+      if (!Array.isArray(remote)) return;
+      const localStr = JSON.stringify(window.__products || []);
+      const remoteStr = JSON.stringify(remote || []);
+      if (localStr !== remoteStr) {
+        products = remote;
+        saveProducts(products);
+        window.__products = products;
+        try { if (typeof renderAndBind === 'function') renderAndBind(); } catch(e) { console.warn('render after poll failed', e); }
+        try { if (bc) bc.postMessage({ type: 'products-updated', products: products }); } catch(e) {}
+      }
+    } catch (e) {
+      // ignore polling errors
+    }
+  }, Math.max(1000, intervalSec) * 1000);
+}
+
+// trigger immediate fetch on visibility change (when tab becomes active)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && window.__API_BASE) {
+    (async () => {
+      try {
+        const remote = await serverLoadProducts();
+        if (Array.isArray(remote)) {
+          const localStr = JSON.stringify(window.__products || []);
+          const remoteStr = JSON.stringify(remote || []);
+          if (localStr !== remoteStr) {
+            products = remote;
+            saveProducts(products);
+            window.__products = products;
+            try { if (typeof renderAndBind === 'function') renderAndBind(); } catch(e) {}
+          }
+        }
+      } catch (e) {}
+    })();
+  }
+});
+
+// Listen to BroadcastChannel updates from other tabs
+if (bc) {
+  bc.onmessage = (ev) => {
+    try {
+      const msg = ev.data;
+      if (!msg || msg.type !== 'products-updated') return;
+      const remote = msg.products || [];
+      const localStr = JSON.stringify(window.__products || []);
+      const remoteStr = JSON.stringify(remote || []);
+      if (localStr !== remoteStr) {
+        products = remote;
+        saveProducts(products);
+        window.__products = products;
+        try { if (typeof renderAndBind === 'function') renderAndBind(); } catch(e) {}
+      }
+    } catch (e) { console.warn('bc.onmessage failed', e); }
+  };
 }
 
 // Clear service worker, caches, localStorage/sessionStorage and reload the page
@@ -248,7 +317,7 @@ if (forceSyncBtn) forceSyncBtn.addEventListener('click', async () => {
         }
       }
         // If API_BASE is configured, try to load from it
-        if (window.__API_BASE) {
+            if (window.__API_BASE) {
           try {
             const remote = await serverLoadProducts();
             if (Array.isArray(remote) && remote.length > 0) {
@@ -256,7 +325,7 @@ if (forceSyncBtn) forceSyncBtn.addEventListener('click', async () => {
               saveProducts(products); // keep local cache
               return true;
             }
-          } catch (e) { console.info('Could not load products from API:', e); }
+              } catch (e) { console.info('Could not load products from API:', e); }
         }
       } finally {
         hideLoading();
@@ -284,6 +353,11 @@ if (forceSyncBtn) forceSyncBtn.addEventListener('click', async () => {
   window.__products = products;
   // ensure UI reflects loaded products (init may run before initial render)
   try { if (typeof renderAndBind === 'function') renderAndBind(); } catch (e) { console.warn('render after init failed', e); }
+})();
+
+// start polling loop to sync from server periodically (no-op until API_BASE set)
+(function(){
+  try { startServerPoll(45); } catch(e) { /* ignore */ }
 })();
 
 // expose products globally for component utilities (used for mapping selections)
@@ -445,8 +519,18 @@ function showHistoryPanel(triggerBtn) {
     </div>`;
   }).join(''));
 
-  // position near trigger if provided
-  if (triggerBtn && triggerBtn.getBoundingClientRect) {
+  // position near trigger if provided. On small screens center the panel instead.
+  if (window.innerWidth <= 720) {
+    panel.style.position = 'fixed';
+    panel.style.left = '50%';
+    panel.style.top = '50%';
+    panel.style.transform = 'translate(-50%, -50%)';
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+    panel.style.width = 'calc(100vw - 24px)';
+    panel.style.maxHeight = '80vh';
+    panel.style.boxSizing = 'border-box';
+  } else if (triggerBtn && triggerBtn.getBoundingClientRect) {
     const r = triggerBtn.getBoundingClientRect();
     panel.style.position = 'absolute';
     panel.style.left = `${Math.max(8, r.left + window.scrollX)}px`;
@@ -1023,8 +1107,18 @@ function showServerHistoryPanel(triggerBtn) {
     panel.innerHTML = `<h3>Historial servidor</h3><div class="history-empty">Configura el servidor primero</div>`;
   }
 
-  // position near trigger if provided
-  if (triggerBtn && triggerBtn.getBoundingClientRect) {
+  // position near trigger if provided; center on small screens
+  if (window.innerWidth <= 720) {
+    panel.style.position = 'fixed';
+    panel.style.left = '50%';
+    panel.style.top = '50%';
+    panel.style.transform = 'translate(-50%, -50%)';
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+    panel.style.width = 'calc(100vw - 24px)';
+    panel.style.maxHeight = '80vh';
+    panel.style.boxSizing = 'border-box';
+  } else if (triggerBtn && triggerBtn.getBoundingClientRect) {
     const r = triggerBtn.getBoundingClientRect();
     panel.style.position = 'absolute';
     panel.style.left = `${Math.max(8, r.left + window.scrollX)}px`;
