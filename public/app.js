@@ -4,7 +4,20 @@ import { openModal, closeModal, bindModal } from '../src/components/modal.js';
 import { loadProducts, saveProducts } from '../src/data/storage.js';
 import { isTodayOrPast } from '../src/services/expiry.js';
 import { importFile } from '../src/data/import.js';
-import '../src/data/supabase.js';
+// Try to load the Supabase wrapper dynamically using an absolute path so it
+// reliably loads in the browser environment. This sets `window.__SUPABASE`.
+(function loadSupabaseWrapper(){
+  try {
+    // use absolute path so it works when served statically
+    import('/src/data/supabase.js').then(() => {
+      try { console.log('[supabase] wrapper loaded'); } catch(e){}
+    }).catch(e => {
+      try { console.warn('[supabase] failed to load wrapper', e); } catch(e){}
+    });
+  } catch (e) {
+    try { console.warn('[supabase] dynamic import not supported', e); } catch(e){}
+  }
+})();
 
 console.log('✅ app.js cargado correctamente');
 
