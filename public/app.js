@@ -46,6 +46,53 @@ const tagFilterFresco = document.getElementById('tagFilterFresco');
 const DEFAULT_API_KEY = '98150e30a8d0945c90fae1f68999a7a9';
 const forceSyncBtn = document.getElementById('forceSyncBtn');
 const adminBtn = document.getElementById('adminBtn');
+const installBtn = document.getElementById('installBtn');
+
+// PWA install handling: show `installBtn` when `beforeinstallprompt` fires (Chrome/Android)
+let deferredPrompt = null;
+const isIos = /iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase());
+const isInStandaloneMode = ('standalone' in window.navigator) && window.navigator.standalone;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  // Prevent the mini-infobar from appearing on mobile
+  e.preventDefault();
+  deferredPrompt = e;
+  try { if (installBtn) installBtn.style.display = ''; } catch(e) {}
+});
+
+if (installBtn) {
+  // For iOS show the install button too (will show instructions on click)
+  if (isIos && !isInStandaloneMode) installBtn.style.display = '';
+  installBtn.addEventListener('click', async (ev) => {
+    ev.stopPropagation();
+    // If we have the deferred prompt (Chrome/Android)
+    if (deferredPrompt) {
+      try { deferredPrompt.prompt(); } catch(e) {}
+      try {
+        const choice = await deferredPrompt.userChoice;
+        // hide the install button after choice
+        deferredPrompt = null;
+        installBtn.style.display = 'none';
+      } catch (e) {
+        deferredPrompt = null;
+      }
+      return;
+    }
+    // Fallback for iOS Safari: show quick instructions
+    if (isIos && !isInStandaloneMode) {
+      try {
+        alert('Para instalar en iOS: toca el icono de compartir (abajo) y elige "Añadir a pantalla de inicio".');
+      } catch (e) {}
+      return;
+    }
+  });
+}
+
+window.addEventListener('appinstalled', () => {
+  // hide install button if installed
+  try { if (installBtn) installBtn.style.display = 'none'; } catch(e) {}
+  deferredPrompt = null;
+});
 
 // Broadcast channel for intra-browser/tab sync (fallback to polling across devices)
 const bc = (typeof BroadcastChannel !== 'undefined') ? new BroadcastChannel('inventario-sync') : null;
