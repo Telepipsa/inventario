@@ -1188,27 +1188,36 @@ async function showIconPicker(triggerBtn) {
   }
   // position near triggerBtn using viewport coordinates (getBoundingClientRect)
   const rect = triggerBtn.getBoundingClientRect();
-  // for fixed positioning we should NOT add window.scrollX/Y (rect is already viewport-relative)
-  let left = rect.right + 8;
-  let top = rect.top;
-  picker.style.left = `${left}px`;
-  picker.style.top = `${top}px`;
-  // adjust if it would overflow viewport after render
-  setTimeout(() => {
-    const pw = picker.offsetWidth || 0;
-    const ph = picker.offsetHeight || 0;
-    let placedLeft = false;
-    if (left + pw > window.innerWidth) {
-      left = Math.max(8, rect.left - pw - 8);
-      placedLeft = true;
-      picker.style.left = `${left}px`;
-    }
-    if (top + ph > window.innerHeight) {
-      top = Math.max(8, window.innerHeight - ph - 8);
-      picker.style.top = `${top}px`;
-    }
-    // if placed left, we might want to flip arrow or styling (not used for picker)
-  }, 0);
+  // On narrow viewports (mobile) center the picker to avoid it being pushed off-screen
+  if (window.innerWidth <= 520) {
+    picker.style.left = '50%';
+    picker.style.top = '50%';
+    picker.style.transform = 'translate(-50%, -50%)';
+    picker.style.maxWidth = '92%';
+  } else {
+    // for desktop/tablet keep anchored near the button
+    picker.style.transform = '';
+    let left = rect.right + 8;
+    let top = rect.top;
+    picker.style.left = `${left}px`;
+    picker.style.top = `${top}px`;
+    // adjust if it would overflow viewport after render
+    setTimeout(() => {
+      const pw = picker.offsetWidth || 0;
+      const ph = picker.offsetHeight || 0;
+      let placedLeft = false;
+      if (left + pw > window.innerWidth) {
+        left = Math.max(8, rect.left - pw - 8);
+        placedLeft = true;
+        picker.style.left = `${left}px`;
+      }
+      if (top + ph > window.innerHeight) {
+        top = Math.max(8, window.innerHeight - ph - 8);
+        picker.style.top = `${top}px`;
+      }
+      // if placed left, we might want to flip arrow or styling (not used for picker)
+    }, 0);
+  }
   picker.classList.add('visible');
   // mark picker open so modal outside-click ignores clicks inside
   try { window.__iconPickerOpen = true; } catch (e) {}

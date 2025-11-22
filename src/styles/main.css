@@ -292,7 +292,8 @@ body {
 @media (max-width: 520px) {
   .modal.popover { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); }
   .modal.popover::before { display: none; }
-  .icon-picker { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); }
+  .icon-picker { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); max-width: 92%; }
+  .icon-picker .grid { grid-template-columns: repeat(2, 1fr); gap:8px; }
 }
 
 /* For medium screens (<1000px) keep layout single column and reduce font-sizes as requested */
@@ -331,7 +332,8 @@ body {
   .stock-controls .stock-value { min-width:34px; font-size:13px; }
   .modal-content { min-width: auto; width: calc(100vw - 24px); box-sizing: border-box; }
   .icon-picker { position: fixed; left: 50%; transform: translateX(-50%); bottom: 20px; top: auto; max-width: 96%; }
-  .icon-picker .grid { grid-template-columns: repeat(4, 1fr); gap:6px; }
+  /* Prefer 2 columns on narrow/phone screens so icons remain large and avoid overflow */
+  .icon-picker .grid { grid-template-columns: repeat(2, 1fr); gap:6px; }
   .icon-picker .item img { width:40px; height:40px; }
 
   /* Ensure table controls (buttons + search) can wrap into two lines without overflowing */
@@ -405,7 +407,8 @@ body {
   .product-cell { gap:8px; }
   .stock-controls .stock-value { min-width:44px; font-size:15px; }
   /* icon picker: 3 columns to avoid tiny icons on very small screens */
-  .icon-picker .grid { grid-template-columns: repeat(3, 1fr); gap:6px; max-width: 96vw; }
+  /* Use 2 columns on very small screens (phone) */
+  .icon-picker .grid { grid-template-columns: repeat(2, 1fr); gap:6px; max-width: 96vw; }
   .icon-picker { left: 50%; transform: translateX(-50%); bottom: 12px; top: auto; }
   /* toast centered and wider for readability */
   .toast { left: 50%; right: auto; transform: translateX(-50%) translateY(8px); width: calc(100% - 40px); max-width: 520px; bottom: 14px; }
