@@ -48,15 +48,45 @@ async function saveProducts(products) {
   // Use upsert via on_conflict=code and Prefer resolution=merge-duplicates
   const url = base + '?on_conflict=code';
   const headers = Object.assign({}, _headers(), { Prefer: 'resolution=merge-duplicates,return=representation' });
-  const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(normalized) });
-  if (!res.ok) {
-    const txt = await res.text().catch(()=>'');
-    const err = new Error('Supabase upsert failed: ' + res.status + ' ' + txt);
-    err.status = res.status;
-    throw err;
+  try {
+    const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(normalized) });
+    if (!res.ok) {
+      const txt = await res.text().catch(()=>'');
+      const err = new Error('Supabase upsert failed: ' + res.status + ' ' + txt);
+      err.status = res.status;
+      throw err;
+    }
+    const data = await res.json();
+    return data;
+  } catch (upsertErr) {
+    // If upsert fails (often because on_conflict references a non-unique column),
+    // fallback to a delete+insert strategy. This requires that RLS allows DELETE/INSERT for anon key.
+    console.warn('Supabase upsert error, attempting delete+insert fallback', upsertErr);
+    try {
+      // Attempt to DELETE all rows (only works if anon key has permission)
+      const dres = await fetch(base, { method: 'DELETE', headers: _headers() });
+      if (!dres.ok) {
+        const txt = await dres.text().catch(()=>'');
+        const err2 = new Error('Supabase delete fallback failed: ' + dres.status + ' ' + txt);
+        err2.status = dres.status;
+        throw err2;
+      }
+      // Insert payload
+      const insertRes = await fetch(base, { method: 'POST', headers: Object.assign({}, _headers(), { Prefer: 'return=representation' }), body: JSON.stringify(normalized) });
+      if (!insertRes.ok) {
+        const txt = await insertRes.text().catch(()=>'');
+        const err3 = new Error('Supabase insert fallback failed: ' + insertRes.status + ' ' + txt);
+        err3.status = insertRes.status;
+        throw err3;
+      }
+      const data2 = await insertRes.json();
+      return data2;
+    } catch (fallbackErr) {
+      // rethrow the original upsert error if fallback also fails
+      console.error('Supabase upsert and fallback both failed', fallbackErr);
+      throw upsertErr;
+    }
   }
-  const data = await res.json();
-  return data;
 }
 
 // expose convenient names on window for the app to detect availability
