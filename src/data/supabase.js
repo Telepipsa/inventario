@@ -101,8 +101,23 @@ async function saveProducts(products) {
   const conflictCol = (window.__SUPABASE_SCHEMA && window.__SUPABASE_SCHEMA.code) ? window.__SUPABASE_SCHEMA.code : 'code';
   const url = base + `?on_conflict=${encodeURIComponent(conflictCol)}`;
   const headers = Object.assign({}, _headers(), { Prefer: 'resolution=merge-duplicates,return=representation' });
+
+  // PostgREST requires that all objects in the array have the same set of keys.
+  // Build the union of keys and ensure every object contains every key (use null for missing).
+  const allKeys = new Set();
+  normalized.forEach(obj => Object.keys(obj).forEach(k => allKeys.add(k)));
+  const keysArray = Array.from(allKeys);
+  const harmonized = normalized.map(obj => {
+    const o = {};
+    keysArray.forEach(k => {
+      // explicit null for missing keys to keep consistent shape
+      o[k] = (obj.hasOwnProperty(k) ? obj[k] : null);
+    });
+    return o;
+  });
+
   try {
-    const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(normalized) });
+    const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(harmonized) });
     if (!res.ok) {
       const txt = await res.text().catch(()=>'');
       const err = new Error('Supabase upsert failed: ' + res.status + ' ' + txt);
@@ -112,28 +127,9 @@ async function saveProducts(products) {
     const data = await res.json();
     return data;
   } catch (upsertErr) {
-    console.warn('Supabase upsert error, attempting delete+insert fallback', upsertErr);
-    try {
-      const dres = await fetch(base, { method: 'DELETE', headers: _headers() });
-      if (!dres.ok) {
-        const txt = await dres.text().catch(()=>'');
-        const err2 = new Error('Supabase delete fallback failed: ' + dres.status + ' ' + txt);
-        err2.status = dres.status;
-        throw err2;
-      }
-      const insertRes = await fetch(base, { method: 'POST', headers: Object.assign({}, _headers(), { Prefer: 'return=representation' }), body: JSON.stringify(normalized) });
-      if (!insertRes.ok) {
-        const txt = await insertRes.text().catch(()=>'');
-        const err3 = new Error('Supabase insert fallback failed: ' + insertRes.status + ' ' + txt);
-        err3.status = insertRes.status;
-        throw err3;
-      }
-      const data2 = await insertRes.json();
-      return data2;
-    } catch (fallbackErr) {
-      console.error('Supabase upsert and fallback both failed', fallbackErr);
-      throw upsertErr;
-    }
+    // Do not attempt DELETE without WHERE: PostgREST rejects it. Instead surface the error.
+    console.error('Supabase upsert failed and no safe fallback is available', upsertErr);
+    throw upsertErr;
   }
 }
 
