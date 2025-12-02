@@ -20,12 +20,13 @@
     <div class="actions">
       <input id="fileInput" type="file" accept=".csv,.xlsx" style="display:none">
       <button id="adminBtn" class="btn btn-outline">Admin</button>
-      <button id="fileButton" class="btn">Importar CSV/XLSX</button>
+      <button id="fileButton" class="btn admin-hidden">Importar CSV/XLSX</button>
       <button id="installBtn" class="btn btn-outline" style="display:none">Descargar APP</button>
+      <button id="whatsappNotifyBtn" class="btn btn-outline" title="Enviar aviso por WhatsApp">Aviso WhatsApp</button>
       <button id="undoBtn" class="btn btn-outline" title="Deshacer última acción">Deshacer</button>
-      <button id="enablePushBtn" class="btn btn-outline" title="Habilitar notificaciones">Notificaciones</button>
+      <!-- Notificaciones botón eliminado porque no se usa sin servidor persistente -->
       <button id="serverConfigBtn" class="btn btn-outline admin-hidden" title="Configurar servidor">Config servidor</button>
-      <button id="serverHistoryBtn" class="btn btn-outline" title="Historial servidor">Hist serv</button>
+      <button id="serverHistoryBtn" class="btn btn-outline admin-hidden" title="Historial servidor">Hist serv</button>
       <button id="loadProductsBtn" class="btn btn-outline admin-hidden" title="Cargar productos locales">Cargar</button>
       <button id="clearCacheBtn" class="btn btn-outline admin-hidden" title="Limpiar caché y recargar">Limpiar caché</button>
       <button id="forceSyncBtn" class="btn btn-outline admin-hidden" title="Forzar sincronización">Forzar sync</button>
@@ -37,10 +38,11 @@
 
   <main class="container">
     <div class="table-controls">
-      <div class="controls-left">
+        <div class="controls-left">
         <input id="tableSearchInput" type="text" placeholder="Buscar producto...">
         <button id="addProduct" class="btn btn-outline">Añadir producto</button>
-        <button id="deleteSelected" class="btn btn-danger">Eliminar seleccionados</button>
+        <button id="editMultipleBtn" class="btn btn-outline" disabled>Editar varios</button>
+        <button id="deleteSelected" class="btn btn-danger admin-hidden">Eliminar seleccionados</button>
         <button id="historyBtn" class="btn btn-outline">Historial</button>
       </div>
       <div class="tag-filters" aria-label="Filtrar por tipo">
@@ -100,7 +102,7 @@
       </div>
       <div class="modal-actions">
         <button type="submit" class="btn">Guardar</button>
-        <button type="button" id="pfDelete" class="btn btn-danger">Eliminar</button>
+        <button type="button" id="pfDelete" class="btn btn-danger admin-hidden">Eliminar</button>
         <button type="button" id="pfClose" class="btn btn-outline">Cerrar</button>
       </div>
     </form>
@@ -118,6 +120,7 @@
           if (String(pw) === '1494') {
             document.querySelectorAll('.admin-hidden').forEach(function(el){ el.classList.remove('admin-hidden'); });
             adminBtn.style.display = 'none';
+            try { window.__isAdmin = true; var pf = document.getElementById('pfCodigo'); if (pf) pf.disabled = false; } catch(e){}
           } else {
             // incorrect password: do nothing (silent)
           }

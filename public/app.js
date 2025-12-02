@@ -111,6 +111,8 @@ const DEFAULT_API_KEY = '98150e30a8d0945c90fae1f68999a7a9';
 const forceSyncBtn = document.getElementById('forceSyncBtn');
 const adminBtn = document.getElementById('adminBtn');
 const installBtn = document.getElementById('installBtn');
+const whatsappNotifyBtn = document.getElementById('whatsappNotifyBtn');
+const editMultipleBtn = document.getElementById('editMultipleBtn');
 
 // PWA install handling: show `installBtn` when `beforeinstallprompt` fires (Chrome/Android)
 let deferredPrompt = null;
@@ -158,6 +160,106 @@ window.addEventListener('appinstalled', () => {
   deferredPrompt = null;
 });
 
+// WhatsApp notify: compose message for up to 5 products nearest to expiry (or expired)
+function formatIsoDate(d) {
+  if (!d) return '';
+  try {
+    const dt = new Date(d);
+    if (Number.isNaN(dt.getTime())) return String(d);
+    // return as dd/mm/yyyy
+    const day = String(dt.getDate()).padStart(2,'0');
+    const month = String(dt.getMonth()+1).padStart(2,'0');
+    const year = dt.getFullYear();
+    return `${day}/${month}/${year}`;
+  } catch (e) { return String(d); }
+}
+
+function composeWhatsAppForProducts(products) {
+  if (!Array.isArray(products)) return '';
+  const today = new Date();
+  // convert caducidad to comparable date (missing dates -> far future)
+  const enriched = products.map(p => {
+    let dt = null;
+    try { if (p && p.caducidad) dt = new Date(p.caducidad); } catch(e) { dt = null; }
+    const expiryValid = dt && !Number.isNaN(dt.getTime());
+    const isExpired = expiryValid ? (dt.setHours(0,0,0,0) <= new Date(today).setHours(0,0,0,0)) : false;
+    const sortKey = expiryValid ? dt.getTime() : Number.MAX_SAFE_INTEGER;
+    return Object.assign({}, p, { _expiryDate: dt, _isExpired: isExpired, _sortKey: sortKey });
+  });
+  // sort by soonest expiry (expired first), then take 5
+  enriched.sort((a,b) => (a._sortKey - b._sortKey));
+  // keep only items that have a valid expiry date (or expired)
+  const valid = enriched.filter(p => p._expiryDate && !Number.isNaN(p._expiryDate.getTime()));
+  const pick = valid.slice(0,5);
+  if (pick.length === 0) return '';
+  const lines = [];
+  lines.push('Productos caducados / próximos a caducar:');
+  const msPerDay = 24 * 60 * 60 * 1000;
+  for (const p of pick) {
+    const name = p.producto || p.name || p.producto_nombre || p.producto || p.codigo || 'Producto';
+    const dt = p._expiryDate;
+    const dateStr = formatIsoDate(dt);
+    const daysLeft = Math.ceil((dt.setHours(0,0,0,0) - new Date().setHours(0,0,0,0)) / msPerDay);
+    if (p._isExpired) {
+      // wrap CADUCADO in asterisks for WhatsApp bold
+      lines.push(`"${name}" *CADUCADO*  - Revisar nuevo stock`);
+    } else {
+      const plural = Math.abs(daysLeft) === 1 ? 'día' : 'días';
+      // wrap date in asterisks for WhatsApp bold
+      lines.push(`"${name}" *${dateStr}* - Quedan ${daysLeft} ${plural}`);
+    }
+  }
+  lines.push('— Enviado desde Inventario');
+  return lines.join('\n');
+}
+
+if (whatsappNotifyBtn) {
+  whatsappNotifyBtn.addEventListener('click', async (e) => {
+    try {
+      const products = window.__products || [];
+      const message = composeWhatsAppForProducts(products);
+      if (!message) { alert('No hay productos con fecha de caducidad para enviar.'); return; }
+
+      // Try to copy to clipboard with modern API, fallback to textarea+execCommand
+      let copied = false;
+      try {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+          await navigator.clipboard.writeText(message);
+          copied = true;
+        }
+      } catch (err) {
+        copied = false;
+      }
+      if (!copied) {
+        try {
+          const ta = document.createElement('textarea');
+          ta.style.position = 'fixed'; ta.style.left = '-9999px'; ta.style.top = '0';
+          ta.value = message;
+          document.body.appendChild(ta);
+          ta.focus(); ta.select();
+          copied = document.execCommand('copy');
+          ta.remove();
+        } catch (e) {
+          copied = false;
+        }
+      }
+
+      if (copied) {
+        try { showToast('Mensaje copiado al portapapeles. Ábrelo en WhatsApp y pega en el grupo.', 3000, 'success'); } catch(e){}
+      } else {
+        // If we couldn't copy, present the message in a prompt for manual copy
+        try { prompt('Copia el siguiente mensaje (Ctrl+C) y pégalo en tu grupo de WhatsApp:', message); } catch(e){}
+      }
+
+      // Finally open WhatsApp Web/desktop with prefilled text so user can choose group
+      const encoded = encodeURIComponent(message);
+      const url = `https://wa.me/?text=${encoded}`;
+      // Use open in same gesture completion; if popup is blocked, user can paste manually
+      try { window.open(url, '_blank'); } catch(e) { /* ignore popup blockers */ }
+    } catch (err) { console.error('whatsapp notify failed', err); alert('No se pudo componer el mensaje de WhatsApp (revisa consola)'); }
+  });
+}
+
 // Broadcast channel for intra-browser/tab sync (fallback to polling across devices)
 const bc = (typeof BroadcastChannel !== 'undefined') ? new BroadcastChannel('inventario-sync') : null;
 
@@ -166,6 +268,12 @@ function revealAdminControls() {
     document.querySelectorAll('.admin-hidden').forEach(el => el.classList.remove('admin-hidden'));
   } catch (e) { console.warn('revealAdminControls error', e); }
   if (adminBtn) adminBtn.style.display = 'none';
+  try {
+    // mark admin flag so other code can check
+    window.__isAdmin = true;
+    const pfCodigo = document.getElementById('pfCodigo');
+    if (pfCodigo) pfCodigo.disabled = false;
+  } catch(e) {}
 }
 
 // only bind if not already bound by the inline fallback (prevents double prompt)
@@ -183,6 +291,8 @@ if (adminBtn && !(adminBtn.dataset && adminBtn.dataset.adminBound)) {
 }
 
 let products = [];
+let currentMultiEdit = false;
+let currentMultiIndexes = [];
 
 // Attempt to load from a central API if configured (set window.__API_BASE = 'http://host:port')
 async function serverLoadProducts() {
@@ -356,7 +466,11 @@ if (bc) {
         products = remote;
         saveProducts(products);
         window.__products = products;
-        try { if (typeof renderAndBind === 'function') renderAndBind(); } catch(e) {}
+        try {
+          const t = document.getElementById('tableSearchInput');
+          const q = t && t.value ? t.value : (searchInput && searchInput.value ? searchInput.value : '');
+          filterAndRender(q);
+        } catch(e) { try { if (typeof renderAndBind === 'function') renderAndBind(); } catch(_){} }
       }
     } catch (e) { console.warn('bc.onmessage failed', e); }
   };
@@ -545,6 +659,8 @@ if (forceSyncBtn) forceSyncBtn.addEventListener('click', async () => {
   window.__products = products;
   // ensure UI reflects loaded products (init may run before initial render)
   try { if (typeof renderAndBind === 'function') renderAndBind(); } catch (e) { console.warn('render after init failed', e); }
+  // ensure codigo input is disabled by default unless admin
+  try { const pf = document.getElementById('pfCodigo'); if (pf) pf.disabled = !window.__isAdmin; } catch(e) {}
 })();
 
 // start polling loop to sync from server periodically (no-op until API_BASE set)
@@ -597,6 +713,103 @@ function sortForDisplay(list) {
     if (aTime == null) return 1;
     if (bTime == null) return -1;
     return aTime - bTime;
+  });
+}
+
+// Bind stock-change event handlers to visible controls
+function bindStockControls() {
+  document.querySelectorAll('.stock-controls').forEach(el => {
+    // remove any existing to avoid duplicate handlers
+    try { el.removeEventListener && el.removeEventListener('stock-change', el._stockHandler); } catch(e) {}
+    const handler = (ev) => {
+      const delta = ev.detail && typeof ev.detail.delta === 'number' ? ev.detail.delta : undefined;
+      if (typeof delta !== 'number') return;
+      const globalIdxAttr = ev.currentTarget && ev.currentTarget.dataset ? ev.currentTarget.dataset.globalIndex : undefined;
+      let gi = (globalIdxAttr !== undefined && globalIdxAttr !== '') ? +globalIdxAttr : null;
+      if ((gi === null || Number.isNaN(gi)) && ev.detail && typeof ev.detail.index === 'number') gi = ev.detail.index;
+      if (gi === null || Number.isNaN(gi)) return;
+      const item = products[gi];
+      if (!item) return;
+      const before = deepClone(item);
+      const cur = Number(item.stock ?? 0);
+      const next = Math.max(0, cur + delta);
+      products[gi].stock = next;
+      const afterState = deepClone(products[gi]);
+      pushHistory({ type: 'edit', index: gi, before: before, after: afterState, changes: computeChanges(before, afterState) });
+      syncSave(products);
+      window.__products = products;
+      // preserve current filter/search when re-rendering
+      try {
+        const t = document.getElementById('tableSearchInput');
+        const q = t && t.value ? t.value : (searchInput && searchInput.value ? searchInput.value : '');
+        filterAndRender(q);
+      } catch(e) { try { if (typeof renderAndBind === 'function') renderAndBind(); } catch(_){} }
+    };
+    // store handler for potential future removal
+    el._stockHandler = handler;
+    el.addEventListener('stock-change', handler);
+  });
+}
+
+// Update Edit-Multiple button enabled state based on selected rows
+function updateEditMultipleButton() {
+  try {
+    if (!editMultipleBtn) return;
+    const sel = getSelectedIndexes();
+      // enable only when exactly 2 items selected
+      editMultipleBtn.disabled = !(Array.isArray(sel) && sel.length === 2);
+  } catch (e) { /* ignore */ }
+}
+
+// Listen for selection changes (row checkboxes and selectAll)
+document.addEventListener('change', (e) => {
+  try {
+    const t = e.target;
+    if (!t) return;
+    if (t.matches && (t.matches('.row-check') || t.id === 'selectAll')) {
+      updateEditMultipleButton();
+    }
+  } catch (err) {}
+});
+
+// Bind edit-multiple button click
+if (editMultipleBtn) {
+  editMultipleBtn.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    const idxs = getSelectedIndexes();
+    if (!idxs || idxs.length < 1) { showToast('Selecciona 2 productos para editar en lote', 2500, 'error'); return; }
+    // require exactly 2
+    if (idxs.length !== 2) { showToast('Selecciona exactamente 2 productos', 2200, 'error'); return; }
+    currentMultiEdit = true;
+    currentMultiIndexes = idxs;
+    // prepare modal: clear codigo/nombre and disable them; clear other fields
+    try {
+      const pfCodigo = document.getElementById('pfCodigo');
+      const pfName = document.getElementById('pfName');
+      const pfStock = document.getElementById('pfStock');
+      const pfExpiry = document.getElementById('pfExpiry');
+      const pfIcon = document.getElementById('pfIcon');
+      const preview = document.getElementById('pfIconPreview');
+      if (pfCodigo) { pfCodigo.value = ''; pfCodigo.disabled = true; }
+      if (pfName) { pfName.value = ''; pfName.disabled = true; }
+      if (pfStock) pfStock.value = '';
+      if (pfExpiry) pfExpiry.value = '';
+      if (pfIcon) pfIcon.value = '';
+      if (preview) preview.src = './public/icons/icon-192.png';
+      // uncheck tipo checkboxes
+      const tSec = document.getElementById('pfTagSeco');
+      const tCong = document.getElementById('pfTagCongelado');
+      const tFres = document.getElementById('pfTagFresco');
+      if (tSec) tSec.checked = false;
+      if (tCong) tCong.checked = false;
+      if (tFres) tFres.checked = false;
+      // hide delete button for multi-edit
+      const del = document.getElementById('pfDelete'); if (del) del.style.display = 'none';
+      // change modal title
+      const hdr = document.querySelector('#productForm h2'); if (hdr) hdr.textContent = 'Editar varios productos';
+    } catch (err) { console.warn('prepare multi-edit modal failed', err); }
+    // open centered modal
+    try { openModal(); } catch(e) { openModal(); }
   });
 }
 
@@ -770,9 +983,13 @@ function undoUntil(globalIdx) {
     const entry = historyStack.pop();
     applyUndo(entry);
   }
-  syncSave(products);
-  window.__products = products;
-  renderAndBind();
+    syncSave(products);
+    window.__products = products;
+    try {
+      const t = document.getElementById('tableSearchInput');
+      const q = t && t.value ? t.value : (searchInput && searchInput.value ? searchInput.value : '');
+      filterAndRender(q);
+    } catch(e) { try { renderAndBind(); } catch(_){} }
   updateUndoButton();
   showToast('Acciones deshechas', 1800, 'success');
 }
@@ -811,9 +1028,9 @@ function undoLast() {
   if (historyStack.length === 0) { showToast('Nada que deshacer', 1500); return; }
   const entry = historyStack.pop();
   applyUndo(entry);
-  syncSave(products);
-  window.__products = products;
-  renderAndBind();
+    syncSave(products);
+    window.__products = products;
+    try { const t = document.getElementById('tableSearchInput'); const q = t && t.value ? t.value : (searchInput && searchInput.value ? searchInput.value : ''); filterAndRender(q); } catch(e) { try { renderAndBind(); } catch(_){} }
   updateUndoButton();
   showToast('Acción deshecha', 1800, 'success');
 }
@@ -839,60 +1056,86 @@ function renderAndBind() {
   renderTable(display);
   bindRowEvents((index, dataset, btn) => {
     const p = dataset[index];
+    // if we were in multi-edit state, clear it because we're opening single edit
+    try { if (currentMultiEdit) { currentMultiEdit = false; currentMultiIndexes = []; const pfCodigo = document.getElementById('pfCodigo'); if (pfCodigo && window.__isAdmin) pfCodigo.disabled = false; const pfName = document.getElementById('pfName'); if (pfName) pfName.disabled = false; const del = document.getElementById('pfDelete'); if (del) del.style.display = ''; const hdr = document.querySelector('#productForm h2'); if (hdr) hdr.textContent = 'Editar producto'; } } catch(e){}
     // map to original products array by reference equality
     currentEditIndex = products.findIndex(pr => pr === p);
     fillForm(p);
     // On wide screens prefer a centered wider modal (better UX); on small screens show popover near the button
     if (window.innerWidth >= 1000) openModal(); else openModal({ target: btn });
   }, display);
-
-  // Bind stock change events dispatched from table rows
-  document.querySelectorAll('.stock-controls').forEach(el => {
-    el.addEventListener('stock-change', (ev) => {
-      const delta = ev.detail.delta;
-      if (typeof delta !== 'number') return;
-      // prefer global index attribute (maps back to window.__products)
-      const globalIdxAttr = ev.currentTarget && ev.currentTarget.dataset ? ev.currentTarget.dataset.globalIndex : undefined;
-      let gi = (globalIdxAttr !== undefined && globalIdxAttr !== '') ? +globalIdxAttr : null;
-      // fallback to event detail index
-      if ((gi === null || Number.isNaN(gi)) && ev.detail && typeof ev.detail.index === 'number') gi = ev.detail.index;
-      if (gi === null || Number.isNaN(gi)) return;
-      const item = products[gi];
-      if (!item) return;
-      const before = deepClone(item);
-      // adjust stock (ensure numeric)
-      const cur = Number(item.stock ?? 0);
-      const next = Math.max(0, cur + delta);
-      products[gi].stock = next;
-      const afterState = deepClone(products[gi]);
-      pushHistory({ type: 'edit', index: gi, before: before, after: afterState, changes: computeChanges(before, afterState) });
-      syncSave(products);
-      window.__products = products;
-      renderAndBind();
-    });
-  });
+  // Bind stock controls for the rendered rows
+  try { bindStockControls(); } catch(e) { console.warn('bindStockControls failed', e); }
+  try { updateEditMultipleButton(); } catch(e) {}
 }
 
 // Bind form actions
 bindFormActions({
   onSave: async () => {
-    const data = readForm();
-    if (!data) return;
-    if (currentEditIndex >= 0 && currentEditIndex < products.length) {
-      const before = deepClone(products[currentEditIndex]);
-      products[currentEditIndex] = data;
-      const afterState = deepClone(data);
-      pushHistory({ type: 'edit', index: currentEditIndex, before: before, after: afterState, changes: computeChanges(before, afterState) });
+    // If we are in multi-edit mode, collect optional fields and apply to all selected
+    if (currentMultiEdit && Array.isArray(currentMultiIndexes) && currentMultiIndexes.length > 0) {
+      // read optional values from form without validation of name/codigo
+      const icon = document.getElementById('pfIcon') ? document.getElementById('pfIcon').value.trim() : '';
+      const expiry = document.getElementById('pfExpiry') ? document.getElementById('pfExpiry').value.trim() : '';
+      const stockRaw = document.getElementById('pfStock') ? document.getElementById('pfStock').value.trim() : '';
+      const stock = stockRaw === '' ? undefined : (+stockRaw);
+      let tipo = '';
+      try {
+        if (document.getElementById('pfTagSeco') && document.getElementById('pfTagSeco').checked) tipo = 'seco';
+        else if (document.getElementById('pfTagCongelado') && document.getElementById('pfTagCongelado').checked) tipo = 'congelado';
+        else if (document.getElementById('pfTagFresco') && document.getElementById('pfTagFresco').checked) tipo = 'fresco';
+      } catch (e) { tipo = ''; }
+      const changes = [];
+      currentMultiIndexes.forEach((gi) => {
+        if (gi < 0 || gi >= products.length) return;
+        const before = deepClone(products[gi]);
+        if (icon) products[gi].icon = icon;
+        if (expiry !== '') products[gi].caducidad = expiry;
+        if (typeof stock !== 'undefined' && !Number.isNaN(stock)) products[gi].stock = stock;
+        if (tipo) products[gi].tipo = tipo;
+        const after = deepClone(products[gi]);
+        changes.push({ index: gi, before, after });
+      });
+      // push a grouped history entry
+      if (changes.length > 0) pushHistory({ type: 'edit-multiple', changes: changes });
     } else {
-      products.push(data);
-      const idx = products.length - 1;
-      pushHistory({ type: 'add', index: idx, item: deepClone(data) });
+      const data = readForm();
+      if (!data) return;
+      if (currentEditIndex >= 0 && currentEditIndex < products.length) {
+        const before = deepClone(products[currentEditIndex]);
+        products[currentEditIndex] = data;
+        const afterState = deepClone(data);
+        pushHistory({ type: 'edit', index: currentEditIndex, before: before, after: afterState, changes: computeChanges(before, afterState) });
+      } else {
+        products.push(data);
+        const idx = products.length - 1;
+        pushHistory({ type: 'add', index: idx, item: deepClone(data) });
+      }
     }
-    // Save locally and broadcast immediately
+    // Save locally and broadcast immediately, then re-render preserving the
+    // current search/filter so the user's view isn't reset to show all items.
     saveProducts(products);
     try { if (bc) bc.postMessage({ type: 'products-updated', products: products }); } catch(e){}
     window.__products = products;
-    renderAndBind();
+    try {
+      // reset multi-edit state and restore form defaults
+      if (currentMultiEdit) {
+        currentMultiEdit = false;
+        currentMultiIndexes = [];
+        try {
+          const pfCodigo = document.getElementById('pfCodigo'); if (pfCodigo && window.__isAdmin) pfCodigo.disabled = false;
+          const pfName = document.getElementById('pfName'); if (pfName) pfName.disabled = false;
+          const del = document.getElementById('pfDelete'); if (del) del.style.display = '';
+          const hdr = document.querySelector('#productForm h2'); if (hdr) hdr.textContent = 'Editar producto';
+        } catch(e){}
+      }
+      const t = document.getElementById('tableSearchInput');
+      const q = t && t.value ? t.value : (searchInput && searchInput.value ? searchInput.value : '');
+      filterAndRender(q);
+    } catch (e) {
+      // fallback to full render if something unexpected happens
+      try { renderAndBind(); } catch(_){ }
+    }
 
     // Try single-item server save via Supabase wrapper (more efficient)
     if (window.__USE_SUPABASE && window.__SUPABASE && typeof window.__SUPABASE.saveSingle === 'function') {
@@ -920,15 +1163,36 @@ bindFormActions({
     pushHistory({ type: 'delete', items: [{ index: currentEditIndex, item: removed }] });
     syncSave(products);
     window.__products = products;
-    renderAndBind();
+    try { const t = document.getElementById('tableSearchInput'); const q = t && t.value ? t.value : (searchInput && searchInput.value ? searchInput.value : ''); filterAndRender(q); } catch(e) { try { renderAndBind(); } catch(_){} }
     closeModal();
   },
   onCancel: () => {
+    // cleanup multi-edit state if active
+    try {
+      if (currentMultiEdit) {
+        currentMultiEdit = false;
+        currentMultiIndexes = [];
+        const pfCodigo = document.getElementById('pfCodigo'); if (pfCodigo && window.__isAdmin) pfCodigo.disabled = false;
+        const pfName = document.getElementById('pfName'); if (pfName) pfName.disabled = false;
+        const del = document.getElementById('pfDelete'); if (del) del.style.display = '';
+        const hdr = document.querySelector('#productForm h2'); if (hdr) hdr.textContent = 'Editar producto';
+      }
+    } catch(e){}
     closeModal();
   }
 });
 
 bindModal(() => {
+  try {
+    if (currentMultiEdit) {
+      currentMultiEdit = false;
+      currentMultiIndexes = [];
+      const pfCodigo = document.getElementById('pfCodigo'); if (pfCodigo && window.__isAdmin) pfCodigo.disabled = false;
+      const pfName = document.getElementById('pfName'); if (pfName) pfName.disabled = false;
+      const del = document.getElementById('pfDelete'); if (del) del.style.display = '';
+      const hdr = document.querySelector('#productForm h2'); if (hdr) hdr.textContent = 'Editar producto';
+    }
+  } catch(e){}
   closeModal();
 });
 
@@ -1044,11 +1308,31 @@ function filterAndRender(query) {
     congelado: tagFilterCongelado ? !!tagFilterCongelado.checked : true,
     fresco: tagFilterFresco ? !!tagFilterFresco.checked : true
   };
+  // Count how many type filters are currently active. When exactly one is
+  // active, we will hide products that have no `tipo`/tags to make the
+  // filtering stricter (user explicitly requested only that type).
+  const activeCount = (active.seco ? 1 : 0) + (active.congelado ? 1 : 0) + (active.fresco ? 1 : 0);
   function matchesTag(p) {
     try {
-      const t = p && p.tags && Array.isArray(p.tags) ? p.tags.map(x => (x||'').toString().toLowerCase()) : [];
-      if (!t || t.length === 0) return true; // untagged -> always show
-      // show if any of the product's tags correspond to an active filter
+      // Prefer the new `tipo` string column. Fallback to legacy `tags` array.
+      // Ensure we only treat a real non-empty string as a tipo value.
+      const tipo = (p && typeof p.tipo === 'string' && p.tipo.trim() !== '') ? p.tipo.toLowerCase() : null;
+      if (tipo) {
+        if (tipo === 'seco' && active.seco) return true;
+        if (tipo === 'congelado' && active.congelado) return true;
+        if (tipo === 'fresco' && active.fresco) return true;
+        return false;
+      }
+      const t = p && Array.isArray(p.tags) ? p.tags.map(x => (x||'').toString().toLowerCase()) : [];
+      // If there are no legacy tags and no explicit `tipo`, decide whether to
+      // show the untagged item. We only show untyped products when the user
+      // has selected either ALL filters (meaning "show everything") or NONE
+      // (no restriction). When exactly one or two filters are active, the
+      // user expects a strict match and untyped items should be hidden.
+      if (!t || t.length === 0) {
+        if (activeCount === 0 || activeCount === 3) return true; // show all
+        return false; // hide when 1 or 2 filters are active
+      }
       if (active.seco && t.includes('seco')) return true;
       if (active.congelado && t.includes('congelado')) return true;
       if (active.fresco && t.includes('fresco')) return true;
@@ -1065,6 +1349,9 @@ function filterAndRender(query) {
     fillForm(p);
     if (window.innerWidth >= 1000) openModal(); else openModal({ target: btn });
   }, display);
+  // ensure stock buttons are wired for the filtered/rendered rows
+  try { bindStockControls(); } catch(e) { console.warn('bindStockControls failed', e); }
+  try { updateEditMultipleButton(); } catch(e) {}
 }
 
 // header search
@@ -1101,7 +1388,7 @@ if (deleteSelectedBtn) {
     pushHistory({ type: 'delete', items: backup });
     syncSave(products);
     window.__products = products;
-    renderAndBind();
+    try { const t = document.getElementById('tableSearchInput'); const q = t && t.value ? t.value : (searchInput && searchInput.value ? searchInput.value : ''); filterAndRender(q); } catch(e) { try { renderAndBind(); } catch(_){} }
     // show toast with Undo button that triggers global undo
     showToast(`${idxs.length} eliminado(s)`, 8000, 'success', ` <button id="toastUndoBtn" class="toast-btn">Deshacer</button>`);
     const undoBtn = document.getElementById('toastUndoBtn');
@@ -1170,9 +1457,9 @@ function urlBase64ToUint8Array(base64String) {
   return outputArray;
 }
 
-// wire enablePush button
-const enablePushBtn = document.getElementById('enablePushBtn');
-if (enablePushBtn) enablePushBtn.addEventListener('click', () => enablePush());
+// The `Notificaciones` button and its binding were removed from the UI
+// because push subscriptions require a persistent server. The enablePush
+// function remains if you later re-add server-side support.
 
 // --- Server config UI ---
 // read saved server config from localStorage

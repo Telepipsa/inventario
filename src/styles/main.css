@@ -348,7 +348,7 @@ body {
   .table-controls { display:flex; flex-wrap:wrap; gap:8px; justify-content:space-between; }
   .table-controls .controls-left, .table-controls .controls-right { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 
-  .tag-filters { width:100%; justify-content:flex-start; margin-top:6px; }
+  .tag-filters { width:100%; justify-content:center; margin-top:6px; }
 }
 
 /* Mobile-specific: smaller checkboxes and tag label text */
