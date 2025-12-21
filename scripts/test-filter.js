@@ -3,31 +3,26 @@
 
 function matchesTagForTest(p, active) {
   const activeCount = (active.seco ? 1 : 0) + (active.congelado ? 1 : 0) + (active.fresco ? 1 : 0);
-  const tipo = (p && typeof p.tipo === 'string' && p.tipo.trim() !== '') ? p.tipo.toLowerCase() : null;
-  if (tipo) {
-    if (tipo === 'seco' && active.seco) return true;
-    if (tipo === 'congelado' && active.congelado) return true;
-    if (tipo === 'fresco' && active.fresco) return true;
-    return false;
-  }
-  const t = p && Array.isArray(p.tags) ? p.tags.map(x => (x||'').toString().toLowerCase()) : [];
-  if (!t || t.length === 0) {
+  const tipos = Array.isArray(p && p.tipo) ? p.tipo.map(x => (x||'').toString().toLowerCase())
+    : (p && typeof p.tipo === 'string' && p.tipo.trim() !== '') ? [p.tipo.toLowerCase()]
+    : (Array.isArray(p.tags) ? p.tags.map(x => (x||'').toString().toLowerCase()) : []);
+  if (!tipos || tipos.length === 0) {
     if (activeCount === 0 || activeCount === 3) return true;
     return false;
   }
-  if (active.seco && t.includes('seco')) return true;
-  if (active.congelado && t.includes('congelado')) return true;
-  if (active.fresco && t.includes('fresco')) return true;
+  if (active.seco && tipos.includes('seco')) return true;
+  if (active.congelado && tipos.includes('congelado')) return true;
+  if (active.fresco && tipos.includes('fresco')) return true;
   return false;
 }
 
 const products = [
-  { id: 1, producto: 'A', tipo: 'seco' },
-  { id: 2, producto: 'B', tipo: '' },
+  { id: 1, producto: 'A', tipo: ['seco'] },
+  { id: 2, producto: 'B', tipo: [] },
   { id: 3, producto: 'C' },
   { id: 4, producto: 'D', tags: ['seco'] },
   { id: 5, producto: 'E', tags: [] },
-  { id: 6, producto: 'F', tipo: 'congelado' },
+  { id: 6, producto: 'F', tipo: ['congelado'] },
   { id: 7, producto: 'G', tags: ['fresco'] }
 ];
 

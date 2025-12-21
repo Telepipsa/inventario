@@ -106,6 +106,8 @@ const clearCacheBtn = document.getElementById('clearCacheBtn');
 const tagFilterSeco = document.getElementById('tagFilterSeco');
 const tagFilterCongelado = document.getElementById('tagFilterCongelado');
 const tagFilterFresco = document.getElementById('tagFilterFresco');
+const tagFilterBebida = document.getElementById('tagFilterBebida');
+const tagFilterHelados = document.getElementById('tagFilterHelados');
 // Default API key for your personal server (used automatically when missing)
 const DEFAULT_API_KEY = '98150e30a8d0945c90fae1f68999a7a9';
 const forceSyncBtn = document.getElementById('forceSyncBtn');
@@ -182,8 +184,17 @@ function composeWhatsAppForProducts(products) {
     let dt = null;
     try { if (p && p.caducidad) dt = new Date(p.caducidad); } catch(e) { dt = null; }
     const expiryValid = dt && !Number.isNaN(dt.getTime());
-    const isExpired = expiryValid ? (dt.setHours(0,0,0,0) <= new Date(today).setHours(0,0,0,0)) : false;
-    const sortKey = expiryValid ? dt.getTime() : Number.MAX_SAFE_INTEGER;
+    // compute midnight versions to do date-only comparisons (no time component)
+    let isExpired = false;
+    let sortKey = Number.MAX_SAFE_INTEGER;
+    if (expiryValid) {
+      const dtMid = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+      const todayMid = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      isExpired = dtMid.getTime() < todayMid.getTime(); // strictly before today
+      sortKey = dtMid.getTime();
+      // keep dt normalized to midnight for later formatting/compute
+      dt = dtMid;
+    }
     return Object.assign({}, p, { _expiryDate: dt, _isExpired: isExpired, _sortKey: sortKey });
   });
   // sort by soonest expiry (expired first), then take 5
@@ -194,23 +205,66 @@ function composeWhatsAppForProducts(products) {
   if (pick.length === 0) return '';
   const lines = [];
   lines.push('Productos caducados / próximos a caducar:');
-  const msPerDay = 24 * 60 * 60 * 1000;
+    const msPerDay = 24 * 60 * 60 * 1000;
   for (const p of pick) {
     const name = p.producto || p.name || p.producto_nombre || p.producto || p.codigo || 'Producto';
     const dt = p._expiryDate;
     const dateStr = formatIsoDate(dt);
-    const daysLeft = Math.ceil((dt.setHours(0,0,0,0) - new Date().setHours(0,0,0,0)) / msPerDay);
+    // compute day-difference between expiry midnight and today midnight
+    const todayMid = new Date(); todayMid.setHours(0,0,0,0);
+    const dtMid = dt ? new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()) : null;
+    const daysDiff = dtMid ? Math.round((dtMid.getTime() - todayMid.getTime()) / msPerDay) : null;
     if (p._isExpired) {
       // wrap CADUCADO in asterisks for WhatsApp bold
       lines.push(`"${name}" *CADUCADO*  - Revisar nuevo stock`);
     } else {
-      const plural = Math.abs(daysLeft) === 1 ? 'día' : 'días';
-      // wrap date in asterisks for WhatsApp bold
-      lines.push(`"${name}" *${dateStr}* - Quedan ${daysLeft} ${plural}`);
+      if (daysDiff === 0) {
+        // Expires today — show a clearer message instead of "Quedan 0 días"
+        lines.push(`"${name}" *${dateStr}* - Caduca hoy`);
+      } else {
+        const plural = Math.abs(daysDiff) === 1 ? 'día' : 'días';
+        // wrap date in asterisks for WhatsApp bold
+        lines.push(`"${name}" *${dateStr}* - Quedan ${daysDiff} ${plural}`);
+      }
     }
   }
   lines.push('— Enviado desde Inventario');
   return lines.join('\n');
+}
+
+// Robust clipboard copy helper with fallbacks for older mobile browsers
+async function copyTextToClipboard(text) {
+  if (!text) return false;
+  // Try modern API first
+  try {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch (e) {
+    // fall through to legacy method
+  }
+
+  // Legacy fallback using a textarea + execCommand
+  try {
+    const ta = document.createElement('textarea');
+    // iOS requires element to be selectable and in the DOM
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    ta.style.top = '0';
+    document.body.appendChild(ta);
+    // selection for iOS
+    ta.focus();
+    ta.select();
+    try { ta.setSelectionRange(0, ta.value.length); } catch (e) {}
+    const ok = document.execCommand && document.execCommand('copy');
+    ta.remove();
+    return !!ok;
+  } catch (e) {
+    return false;
+  }
 }
 
 if (whatsappNotifyBtn) {
@@ -220,29 +274,11 @@ if (whatsappNotifyBtn) {
       const message = composeWhatsAppForProducts(products);
       if (!message) { alert('No hay productos con fecha de caducidad para enviar.'); return; }
 
-      // Try to copy to clipboard with modern API, fallback to textarea+execCommand
+      // Try to copy to clipboard (centralized helper with fallbacks)
       let copied = false;
       try {
-        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-          await navigator.clipboard.writeText(message);
-          copied = true;
-        }
-      } catch (err) {
-        copied = false;
-      }
-      if (!copied) {
-        try {
-          const ta = document.createElement('textarea');
-          ta.style.position = 'fixed'; ta.style.left = '-9999px'; ta.style.top = '0';
-          ta.value = message;
-          document.body.appendChild(ta);
-          ta.focus(); ta.select();
-          copied = document.execCommand('copy');
-          ta.remove();
-        } catch (e) {
-          copied = false;
-        }
-      }
+        copied = await copyTextToClipboard(message);
+      } catch (e) { copied = false; }
 
       if (copied) {
         try { showToast('Mensaje copiado al portapapeles. Ábrelo en WhatsApp y pega en el grupo.', 3000, 'success'); } catch(e){}
@@ -251,11 +287,36 @@ if (whatsappNotifyBtn) {
         try { prompt('Copia el siguiente mensaje (Ctrl+C) y pégalo en tu grupo de WhatsApp:', message); } catch(e){}
       }
 
-      // Finally open WhatsApp Web/desktop with prefilled text so user can choose group
+      // Finally open WhatsApp: prefer native app on mobile, fallback to wa.me / api.whatsapp.com
       const encoded = encodeURIComponent(message);
-      const url = `https://wa.me/?text=${encoded}`;
-      // Use open in same gesture completion; if popup is blocked, user can paste manually
-      try { window.open(url, '_blank'); } catch(e) { /* ignore popup blockers */ }
+      try {
+        const ua = navigator.userAgent || '';
+        const isMobile = /android|iphone|ipad|ipod/i.test(ua);
+        if (isMobile) {
+          // Try to open native app first. Some browsers will handle this and switch apps.
+          try {
+            const appUrl = `whatsapp://send?text=${encoded}`;
+            // open in new tab/window — on many mobile browsers this will trigger the app
+            window.open(appUrl, '_blank');
+          } catch (e) {
+            // ignore and fall through to web fallback
+          }
+          // If the native attempt didn't work (or was blocked), open wa.me after a short delay
+          setTimeout(() => {
+            try { window.open(`https://wa.me/?text=${encoded}`, '_blank'); } catch(e) {
+              try { window.open(`https://api.whatsapp.com/send?text=${encoded}`, '_blank'); } catch(_) {}
+            }
+          }, 600);
+        } else {
+          // Desktop / non-mobile: open web interface
+          try { window.open(`https://wa.me/?text=${encoded}`, '_blank'); } catch(e) {
+            try { window.open(`https://api.whatsapp.com/send?text=${encoded}`, '_blank'); } catch(_) {}
+          }
+        }
+      } catch (err) {
+        // last-resort: open wa.me
+        try { window.open(`https://wa.me/?text=${encoded}`, '_blank'); } catch(e) { /* ignore */ }
+      }
     } catch (err) { console.error('whatsapp notify failed', err); alert('No se pudo componer el mensaje de WhatsApp (revisa consola)'); }
   });
 }
@@ -756,8 +817,9 @@ function updateEditMultipleButton() {
   try {
     if (!editMultipleBtn) return;
     const sel = getSelectedIndexes();
-      // enable only when exactly 2 items selected
-      editMultipleBtn.disabled = !(Array.isArray(sel) && sel.length === 2);
+      // enable when at least one unique item is selected (allow editing any number)
+      const unique = Array.isArray(sel) ? Array.from(new Set(sel)) : [];
+      editMultipleBtn.disabled = !(unique.length >= 1);
   } catch (e) { /* ignore */ }
 }
 
@@ -776,12 +838,11 @@ document.addEventListener('change', (e) => {
 if (editMultipleBtn) {
   editMultipleBtn.addEventListener('click', (ev) => {
     ev.stopPropagation();
-    const idxs = getSelectedIndexes();
-    if (!idxs || idxs.length < 1) { showToast('Selecciona 2 productos para editar en lote', 2500, 'error'); return; }
-    // require exactly 2
-    if (idxs.length !== 2) { showToast('Selecciona exactamente 2 productos', 2200, 'error'); return; }
+    let idxs = getSelectedIndexes();
+    const unique = Array.isArray(idxs) ? Array.from(new Set(idxs)) : [];
+    if (unique.length < 1) { showToast('Selecciona al menos 1 producto para editar en lote', 2500, 'error'); return; }
     currentMultiEdit = true;
-    currentMultiIndexes = idxs;
+    currentMultiIndexes = unique;
     // prepare modal: clear codigo/nombre and disable them; clear other fields
     try {
       const pfCodigo = document.getElementById('pfCodigo');
@@ -868,6 +929,27 @@ function historyEntryDescription(entry) {
       return c.field;
     });
     return `${name ? name + ': ' : ''}${parts.join(', ')} modificado(s)`;
+  }
+  if (entry.type === 'edit-multiple') {
+    const changes = entry.changes || [];
+    return `Productos: ${changes.length}`;
+  }
+  if (entry.type === 'edit-multiple') {
+    const changes = entry.changes || [];
+    if (changes.length === 0) return 'Editados varios productos';
+    const names = changes.map(c => (c.after && c.after.producto) || (c.before && c.before.producto)).filter(Boolean);
+    if (names.length <= 3) return `Editados: ${names.join(', ')}`;
+    return `Editados: ${names.slice(0,3).join(', ')} (+${names.length-3} más)`;
+  }
+  if (entry.type === 'edit-multiple') {
+    const changes = entry.changes || [];
+    // restore each before state
+    changes.forEach(c => {
+      if (c && typeof c.index === 'number' && c.before) {
+        if (c.index >= 0 && c.index < products.length) products[c.index] = deepClone(c.before);
+      }
+    });
+    return;
   }
   if (entry.type === 'import') {
     const added = (entry.changes || []).filter(c => c.kind === 'added').length;
@@ -1079,12 +1161,15 @@ bindFormActions({
       const expiry = document.getElementById('pfExpiry') ? document.getElementById('pfExpiry').value.trim() : '';
       const stockRaw = document.getElementById('pfStock') ? document.getElementById('pfStock').value.trim() : '';
       const stock = stockRaw === '' ? undefined : (+stockRaw);
-      let tipo = '';
+      // collect multiple tipos if checked
+      let tipoArr = [];
       try {
-        if (document.getElementById('pfTagSeco') && document.getElementById('pfTagSeco').checked) tipo = 'seco';
-        else if (document.getElementById('pfTagCongelado') && document.getElementById('pfTagCongelado').checked) tipo = 'congelado';
-        else if (document.getElementById('pfTagFresco') && document.getElementById('pfTagFresco').checked) tipo = 'fresco';
-      } catch (e) { tipo = ''; }
+        if (document.getElementById('pfTagSeco') && document.getElementById('pfTagSeco').checked) tipoArr.push('seco');
+        if (document.getElementById('pfTagCongelado') && document.getElementById('pfTagCongelado').checked) tipoArr.push('congelado');
+        if (document.getElementById('pfTagFresco') && document.getElementById('pfTagFresco').checked) tipoArr.push('fresco');
+        if (document.getElementById('pfTagBebida') && document.getElementById('pfTagBebida').checked) tipoArr.push('bebida');
+        if (document.getElementById('pfTagHelados') && document.getElementById('pfTagHelados').checked) tipoArr.push('helados');
+      } catch (e) { tipoArr = []; }
       const changes = [];
       currentMultiIndexes.forEach((gi) => {
         if (gi < 0 || gi >= products.length) return;
@@ -1092,7 +1177,7 @@ bindFormActions({
         if (icon) products[gi].icon = icon;
         if (expiry !== '') products[gi].caducidad = expiry;
         if (typeof stock !== 'undefined' && !Number.isNaN(stock)) products[gi].stock = stock;
-        if (tipo) products[gi].tipo = tipo;
+        if (Array.isArray(tipoArr) && tipoArr.length > 0) products[gi].tipo = tipoArr;
         const after = deepClone(products[gi]);
         changes.push({ index: gi, before, after });
       });
@@ -1306,36 +1391,32 @@ function filterAndRender(query) {
   const active = {
     seco: tagFilterSeco ? !!tagFilterSeco.checked : true,
     congelado: tagFilterCongelado ? !!tagFilterCongelado.checked : true,
-    fresco: tagFilterFresco ? !!tagFilterFresco.checked : true
+    fresco: tagFilterFresco ? !!tagFilterFresco.checked : true,
+    bebida: tagFilterBebida ? !!tagFilterBebida.checked : true,
+    helados: tagFilterHelados ? !!tagFilterHelados.checked : true
   };
   // Count how many type filters are currently active. When exactly one is
   // active, we will hide products that have no `tipo`/tags to make the
   // filtering stricter (user explicitly requested only that type).
-  const activeCount = (active.seco ? 1 : 0) + (active.congelado ? 1 : 0) + (active.fresco ? 1 : 0);
+  const activeCount = (active.seco ? 1 : 0) + (active.congelado ? 1 : 0) + (active.fresco ? 1 : 0) + (active.bebida ? 1 : 0) + (active.helados ? 1 : 0);
   function matchesTag(p) {
     try {
-      // Prefer the new `tipo` string column. Fallback to legacy `tags` array.
-      // Ensure we only treat a real non-empty string as a tipo value.
-      const tipo = (p && typeof p.tipo === 'string' && p.tipo.trim() !== '') ? p.tipo.toLowerCase() : null;
-      if (tipo) {
-        if (tipo === 'seco' && active.seco) return true;
-        if (tipo === 'congelado' && active.congelado) return true;
-        if (tipo === 'fresco' && active.fresco) return true;
+      // Build array of tipos: prefer `tipo` (array), fallback to string or tags
+      const tipos = Array.isArray(p && p.tipo) ? p.tipo.map(x => (x||'').toString().toLowerCase())
+        : (p && typeof p.tipo === 'string' && p.tipo.trim() !== '') ? [p.tipo.toLowerCase()]
+        : (Array.isArray(p.tags) ? p.tags.map(x => (x||'').toString().toLowerCase()) : []);
+      // If no tipos present, decide using activeCount: only show when none or ALL filters are active
+      const totalFilters = 0 + (tagFilterSeco ? 1 : 0) + (tagFilterCongelado ? 1 : 0) + (tagFilterFresco ? 1 : 0) + (tagFilterBebida ? 1 : 0) + (tagFilterHelados ? 1 : 0);
+      if (!tipos || tipos.length === 0) {
+        if (activeCount === 0 || activeCount === totalFilters) return true;
         return false;
       }
-      const t = p && Array.isArray(p.tags) ? p.tags.map(x => (x||'').toString().toLowerCase()) : [];
-      // If there are no legacy tags and no explicit `tipo`, decide whether to
-      // show the untagged item. We only show untyped products when the user
-      // has selected either ALL filters (meaning "show everything") or NONE
-      // (no restriction). When exactly one or two filters are active, the
-      // user expects a strict match and untyped items should be hidden.
-      if (!t || t.length === 0) {
-        if (activeCount === 0 || activeCount === 3) return true; // show all
-        return false; // hide when 1 or 2 filters are active
-      }
-      if (active.seco && t.includes('seco')) return true;
-      if (active.congelado && t.includes('congelado')) return true;
-      if (active.fresco && t.includes('fresco')) return true;
+      // check for any overlap between product tipos and active filters
+      if (active.seco && tipos.includes('seco')) return true;
+      if (active.congelado && tipos.includes('congelado')) return true;
+      if (active.fresco && tipos.includes('fresco')) return true;
+      if (active.bebida && tipos.includes('bebida')) return true;
+      if (active.helados && tipos.includes('helados')) return true;
       return false;
     } catch (e) { return true; }
   }
@@ -1368,6 +1449,8 @@ if (tableSearch) tableSearch.addEventListener('input', (e) => filterAndRender(e.
 if (tagFilterSeco) tagFilterSeco.addEventListener('change', () => filterAndRender(tableSearch ? tableSearch.value : (searchInput ? searchInput.value : '')));
 if (tagFilterCongelado) tagFilterCongelado.addEventListener('change', () => filterAndRender(tableSearch ? tableSearch.value : (searchInput ? searchInput.value : '')));
 if (tagFilterFresco) tagFilterFresco.addEventListener('change', () => filterAndRender(tableSearch ? tableSearch.value : (searchInput ? searchInput.value : '')));
+if (tagFilterBebida) tagFilterBebida.addEventListener('change', () => filterAndRender(tableSearch ? tableSearch.value : (searchInput ? searchInput.value : '')));
+if (tagFilterHelados) tagFilterHelados.addEventListener('change', () => filterAndRender(tableSearch ? tableSearch.value : (searchInput ? searchInput.value : '')));
 if (addProductBtn) {
   addProductBtn.addEventListener('click', () => {
     currentEditIndex = -1;

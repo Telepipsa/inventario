@@ -27,18 +27,18 @@ export function renderTable(products) {
     <thead>
       <tr>
         <th style="width:36px;"><input type="checkbox" id="selectAll"></th>
-        <th style="width:110px;">Código</th>
+        <th style="width:80px;">Código</th>
         <th>Producto</th>
         <th>Stock</th>
         <th>Caducidad</th>
-        <th style="width:120px;">Acciones</th>
+        <th style="width:90px;text-align:center;">Acciones</th>
       </tr>
     </thead>
     <tbody>
       ${products.map((p, i) => `
         <tr data-index="${i}" data-global-index="${window.__products && Array.isArray(window.__products) ? window.__products.findIndex(q => q === p) : i}" class="${p.__highlight ? 'row-'+p.__highlight : ''}">
           <td><input type="checkbox" class="row-check" data-index="${i}" data-global-index="${window.__products && Array.isArray(window.__products) ? window.__products.findIndex(q => q === p) : i}"></td>
-          <td style="font-family:monospace;">${displayCode(p)}</td>
+          <td style="font-family:monospace;width:80px;">${displayCode(p)}</td>
           <td class="product-cell">
             <img src="./public/icons/${p.icon || 'icon-192.png'}" alt="${p.producto}" onerror="this.src='./public/icons/icon-192.png'">
             <div>
@@ -55,7 +55,7 @@ export function renderTable(products) {
           <td style="${isTodayOrPast(p.caducidad) ? 'color:#d32f2f;font-weight:600;' : ''}">
             ${formatExpiry(p.caducidad)}
           </td>
-          <td>
+          <td style="text-align:center;width:90px;">
             <button class="btn btn-outline btn-edit" data-index="${i}">Editar</button>
           </td>
         </tr>`).join('')}

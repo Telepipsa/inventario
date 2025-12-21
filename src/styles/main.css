@@ -68,12 +68,12 @@ body {
   padding: 0 12px;
 }
 
-.table-controls { display:flex; justify-content:center; align-items:center; margin-bottom:10px; gap:12px; }
-.table-controls .controls-left { display:flex; gap:8px; align-items:center; }
+.table-controls { display:flex; flex-direction:column; justify-content:center; align-items:center; margin-bottom:10px; gap:12px; }
+.table-controls .controls-left { display:flex; gap:8px; align-items:center; justify-content:center; }
 .table-controls input[type="text"] { padding:8px 10px; border-radius:6px; border:1px solid var(--border); }
 
 /* Tag filters (seco/congelado/fresco) placed near table controls */
-.tag-filters { display:flex; gap:10px; align-items:center; margin-left:12px; }
+.tag-filters { display:flex; gap:10px; align-items:center; justify-content:center; margin-left:0; margin-top:8px; }
 .tag-filter { display:flex; gap:6px; align-items:center; font-size:14px; color:#444; }
 .tag-filter input[type="checkbox"] { width:16px; height:16px; }
 
@@ -180,6 +180,33 @@ body {
   border-radius: 8px;
   flex: 0 0 64px;
 }
+
+/* Ensure table cells align their content vertically centered so the
+   row separator line stays aligned across the full row on mobile */
+.table td, .table th {
+  vertical-align: middle;
+}
+
+/* Make the text container a column flexbox centered vertically to
+   avoid any accidental top/bottom offset from inner elements */
+.product-cell > div { display: flex; flex-direction: column; justify-content: center; min-height: 1px; }
+.product-cell > div > div { 
+  margin: 0; 
+  line-height: 1.15; 
+  /* Clamp to 2 lines to avoid pushing row height. Use -webkit-line-clamp with
+     a guarded max-height so non-WebKit browsers still respect the height. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  /* Standard property (where supported) and Firefox-aware fallback */
+  line-clamp: 2;
+  -moz-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-height: calc(1.15em * 2); /* two lines worth of height */
+  white-space: normal;
+}
+.product-cell img { display: block; }
 
 /* Modal / popover styles */
 #modal {
@@ -345,8 +372,8 @@ body {
   .icon-picker .item img { width:40px; height:40px; }
 
   /* Ensure table controls (buttons + search) can wrap into two lines without overflowing */
-  .table-controls { display:flex; flex-wrap:wrap; gap:8px; justify-content:space-between; }
-  .table-controls .controls-left, .table-controls .controls-right { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .table-controls { display:flex; flex-direction:column; gap:8px; align-items:center; }
+  .table-controls .controls-left, .table-controls .controls-right { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:center; }
 
   .tag-filters { width:100%; justify-content:center; margin-top:6px; }
 }
@@ -429,8 +456,8 @@ body {
   .product-cell img { width:36px; height:36px; flex: 0 0 36px; }
   .product-cell .name, .product-cell .code { font-size:13px; }
   /* make table-controls wrap into two lines if needed */
-  .table-controls { flex-wrap: wrap; gap:8px; }
-  .table-controls .controls-left, .table-controls .controls-right { width:100%; display:flex; flex-wrap:wrap; gap:8px; }
+  .table-controls { display:flex; flex-direction:column; gap:8px; }
+  .table-controls .controls-left, .table-controls .controls-right { width:100%; display:flex; justify-content:center; flex-wrap:wrap; gap:8px; }
 }
 
 /* Medium small screens: reduce font to 10px and tighten spacing */
@@ -440,7 +467,7 @@ body {
   .product-cell img { width: 28px; height: 28px; flex: 0 0 28px; }
   .stock-controls .stock-value { min-width:30px; font-size:12px; }
   /* make small stock buttons smaller if present */
-  .stock-controls button, .stock-controls .btn { padding:4px 6px; font-size:12px; }
+  .stock-controls button, .stock-controls .btn { padding:2px 4px; font-size:12px; }
   .table-controls input[type="text"] { padding:6px 8px; font-size:12px; }
 }
 
@@ -449,14 +476,27 @@ body {
   :root { --card-padding: 6px; }
   .table th, .table td { font-size: 8px; padding: 3px 1px; }
   .product-cell { gap: 3px; }
-  .product-cell img { width: 20px; height: 20px; flex: 0 0 20px; }
-  /* truncate product name to ~25 characters with ellipsis */
-  .product-cell > div > div { display: inline-block; max-width: 25ch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; vertical-align: middle; }
+  .product-cell img { width: 25px; height: 25px; flex: 0 0 20px; }
+  #tableSearchInput{display: none;}
+  /* Allow product name to occupy up to 2 lines on very small screens without
+     increasing row height: use line-clamp where available and fallback to
+     a guarded max-height. */
+  .product-cell > div > div {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-height: calc(1.15em * 2);
+    white-space: normal;
+    vertical-align: middle;
+  }
   .product-cell .name, .product-cell .code { font-size: 8px; }
   .stock-controls .stock-value { min-width:2px; font-size:8px; }
   .stock-controls button, .btn-stock-plus, .btn-stock-minus { padding:2px 4px; font-size:8px; }
   /* edit button compact */
-  .btn-edit { font-size:8px; padding:4px; }
+  .btn-edit { font-size:8px !important; padding:4px !important; }
   .btn, .btn-outline { padding:6px 8px; font-size:10px; }
   .table-controls { gap:6px; }
   .table-controls input[type="text"] { padding:5px 6px; font-size:10px; }

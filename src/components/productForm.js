@@ -12,19 +12,16 @@ export function fillForm(p) {
   document.getElementById('pfIcon').value = iconValue;
   const preview = document.getElementById('pfIconPreview');
   if (preview) preview.src = `./public/icons/${iconValue}`;
-  // tipo: prefer the new `tipo` column (string). Fallback to legacy `tags` array.
+  // tipo: prefer the new `tipo` column (array). Fallback to legacy `tags` array.
   try {
-    const tipo = (p && p.tipo) ? String(p.tipo).toLowerCase() : null;
-    if (tipo) {
-      document.getElementById('pfTagSeco').checked = tipo === 'seco';
-      document.getElementById('pfTagCongelado').checked = tipo === 'congelado';
-      document.getElementById('pfTagFresco').checked = tipo === 'fresco';
-    } else {
-      const tags = Array.isArray(p.tags) ? p.tags.map(t => (t||'').toString().toLowerCase()) : [];
-      document.getElementById('pfTagSeco').checked = tags.includes('seco');
-      document.getElementById('pfTagCongelado').checked = tags.includes('congelado');
-      document.getElementById('pfTagFresco').checked = tags.includes('fresco');
-    }
+    const tiposArray = Array.isArray(p && p.tipo) ? p.tipo.map(t => (t||'').toString().toLowerCase())
+      : (p && typeof p.tipo === 'string' && p.tipo.trim() !== '') ? [p.tipo.toString().toLowerCase()]
+      : (Array.isArray(p.tags) ? p.tags.map(t => (t||'').toString().toLowerCase()) : []);
+    document.getElementById('pfTagSeco').checked = tiposArray.includes('seco');
+    document.getElementById('pfTagCongelado').checked = tiposArray.includes('congelado');
+    document.getElementById('pfTagFresco').checked = tiposArray.includes('fresco');
+    document.getElementById('pfTagBebida').checked = tiposArray.includes('bebida');
+    document.getElementById('pfTagHelados').checked = tiposArray.includes('helados');
   } catch (e) { /* ignore */ }
 }
 export function readForm() {
@@ -33,12 +30,14 @@ export function readForm() {
   const stock = +document.getElementById('pfStock').value;
   let expiry = document.getElementById('pfExpiry').value.trim();
   const icon = document.getElementById('pfIcon').value.trim() || 'icon-192.png';
-  // Determine tipo from radio/checkbox selection (we treat as single-choice)
-  let tipo = '';
-  try {
-    if (document.getElementById('pfTagSeco') && document.getElementById('pfTagSeco').checked) tipo = 'seco';
-    else if (document.getElementById('pfTagCongelado') && document.getElementById('pfTagCongelado').checked) tipo = 'congelado';
-    else if (document.getElementById('pfTagFresco') && document.getElementById('pfTagFresco').checked) tipo = 'fresco';
+  // Determine tipo from checkbox selection (allow multiple)
+  let tipo = [];
+    try {
+    if (document.getElementById('pfTagSeco') && document.getElementById('pfTagSeco').checked) tipo.push('seco');
+    if (document.getElementById('pfTagCongelado') && document.getElementById('pfTagCongelado').checked) tipo.push('congelado');
+    if (document.getElementById('pfTagFresco') && document.getElementById('pfTagFresco').checked) tipo.push('fresco');
+    if (document.getElementById('pfTagBebida') && document.getElementById('pfTagBebida').checked) tipo.push('bebida');
+    if (document.getElementById('pfTagHelados') && document.getElementById('pfTagHelados').checked) tipo.push('helados');
   } catch(e) {}
   if (!name) { alert('Nombre es obligatorio'); return null; }
   if (!Number.isFinite(stock) || stock < 0) { alert('Stock debe ser un número ≥ 0'); return null; }
